@@ -382,6 +382,12 @@ removes it, which is exactly why backup exists (see below).
   anyway**, or **cancel** — rather than silently re-issuing new ids for id collisions the way a
   naive merge would (which is how re-importing an overlapping backup used to create silent
   duplicates). A clean import with no duplicates proceeds without any extra prompt.
+- **Check Library for Duplicates** — the same exact-content-duplicate definition, applied to
+  what's already saved rather than an incoming file. Click the button to scan; if any duplicate
+  groups are found, a dialog lists them (which parameter/character, how many copies, and the date
+  of the copy that would be kept — the oldest one in each group) and asks for confirmation before
+  removing anything. Nothing is deleted on a scan alone, and a clean library reports "No
+  duplicates found" with no further prompt.
 - **Automatic backup to a file on disk** — in Chromium-based browsers (Chrome, Edge) that
   support the File System Access API, "Connect a backup file…" opens a native save dialog
   once; after that, every add or remove is written to that same file automatically (debounced

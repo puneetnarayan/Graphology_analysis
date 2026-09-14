@@ -5,7 +5,7 @@ import { Card, CardTitle, CardSubtitle } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { FORMATIONS_SUB_TABS, type FormationsSubTab } from "@/state/navigation";
-import { useFormations, type ImportAnalysis } from "@/state/useFormations";
+import { useFormations, type ImportAnalysis, type LibraryDuplicateScan } from "@/state/useFormations";
 import { extractImageFileFromClipboard } from "@/utils/clipboard";
 import { ImageAnnotator } from "./ImageAnnotator";
 import { HANDWRITING_PARAMETERS, FORMATION_TAGS, FORMATION_TAG_LABELS, type FormationEntry, type FormationTag } from "@/types";
@@ -1059,14 +1059,86 @@ function DuplicateImportModal({
   );
 }
 
+function LibraryDuplicateModal({
+  scan,
+  onResolve,
+}: {
+  scan: LibraryDuplicateScan;
+  onResolve: (choice: "remove" | "cancel") => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 px-4" role="dialog" aria-modal="true">
+      <Card className="max-w-md w-full max-h-[80vh] overflow-y-auto">
+        <CardTitle>Duplicate entries in your library</CardTitle>
+        <CardSubtitle>
+          Found {scan.groups.length} group{scan.groups.length === 1 ? "" : "s"} of exact duplicates (same parameter,
+          character, sub-category, detail, trait, tag, and image) — {scan.totalDuplicates} extra{" "}
+          entr{scan.totalDuplicates === 1 ? "y" : "ies"} beyond the first, oldest copy of each. Nothing is removed
+          until you confirm.
+        </CardSubtitle>
+        <div className="mt-3 max-h-56 overflow-y-auto rounded-lg bg-surface-alt px-3 py-2">
+          {scan.groups.map((g, i) => (
+            <p key={g.keep.id} className={`text-xs text-text-body ${i > 0 ? "mt-1.5 pt-1.5 border-t border-border-soft" : ""}`}>
+              <span className="font-semibold">
+                {g.keep.parameter || "(no parameter)"}
+                {g.keep.character ? ` "${g.keep.character}"` : ""}
+              </span>{" "}
+              <span className="text-text-muted">
+                — {g.remove.length + 1} copies, keeping the one added {formatDateDMY(g.keep.createdAt)}
+              </span>
+            </p>
+          ))}
+        </div>
+        <div className="mt-4 flex flex-col gap-2">
+          <Button onClick={() => onResolve("remove")}>Remove {scan.totalDuplicates} duplicate{scan.totalDuplicates === 1 ? "" : "s"}</Button>
+          <Button variant="outline" onClick={() => onResolve("cancel")}>
+            Cancel, keep everything
+          </Button>
+        </div>
+      </Card>
+    </div>
+  );
+}
+
 function BackupTab({ store }: { store: FormationsStore }) {
-  const { formations, exportFormations, analyzeImportFile, commitImport, exportFormationsCsv, autoBackup } = store;
+  const {
+    formations,
+    exportFormations,
+    analyzeImportFile,
+    commitImport,
+    exportFormationsCsv,
+    autoBackup,
+    findLibraryDuplicates,
+    removeDuplicateFormations,
+  } = store;
   const importInputRef = useRef<HTMLInputElement>(null);
   const importCsvInputRef = useRef<HTMLInputElement>(null);
   const [importMode, setImportMode] = useState<"merge" | "replace">("merge");
   const [importMessage, setImportMessage] = useState<string | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
   const [pendingImport, setPendingImport] = useState<{ analysis: ImportAnalysis; mode: "merge" | "replace" } | null>(null);
+  const [libraryScan, setLibraryScan] = useState<LibraryDuplicateScan | null>(null);
+  const [dupCheckMessage, setDupCheckMessage] = useState<string | null>(null);
+
+  function handleCheckDuplicates() {
+    setDupCheckMessage(null);
+    const scan = findLibraryDuplicates();
+    if (scan.totalDuplicates === 0) {
+      setDupCheckMessage("No duplicates found — every entry in your library is unique.");
+    } else {
+      setLibraryScan(scan);
+    }
+  }
+
+  async function handleLibraryDuplicateChoice(choice: "remove" | "cancel") {
+    if (!libraryScan) return;
+    const scan = libraryScan;
+    setLibraryScan(null);
+    if (choice === "cancel") return;
+    const ids = scan.groups.flatMap((g) => g.remove.map((f) => f.id));
+    const count = await removeDuplicateFormations(ids);
+    setDupCheckMessage(`Removed ${count} duplicate${count === 1 ? "" : "s"}.`);
+  }
 
   async function finishImport(entries: FormationEntry[], mode: "merge" | "replace") {
     const count = await commitImport(entries, mode);
@@ -1115,6 +1187,13 @@ function BackupTab({ store }: { store: FormationsStore }) {
           </CardSubtitle>
         </div>
         {autoBadge}
+      </div>
+
+      <div className="mt-3 flex items-center gap-3 flex-wrap">
+        <Button variant="outline" onClick={handleCheckDuplicates} disabled={formations.length === 0}>
+          Check Library for Duplicates
+        </Button>
+        {dupCheckMessage && <p className="text-xs text-text-muted">{dupCheckMessage}</p>}
       </div>
 
       <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -1227,6 +1306,7 @@ function BackupTab({ store }: { store: FormationsStore }) {
       {pendingImport && (
         <DuplicateImportModal analysis={pendingImport.analysis} mode={pendingImport.mode} onResolve={handleDuplicateChoice} />
       )}
+      {libraryScan && <LibraryDuplicateModal scan={libraryScan} onResolve={handleLibraryDuplicateChoice} />}
     </Card>
   );
 }

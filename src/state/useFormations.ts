@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { loadImageElement, imageElementToCanvas, toAnalysisCanvas } from "@/utils/canvas";
 import { saveBackupHandle, loadBackupHandle, clearBackupHandle } from "@/utils/fileHandleStore";
-import { dbGetAll, dbPut, dbDelete, dbClear, dbBulkPut, migrateFromLocalStorage, normalizeFormationEntry } from "@/utils/formationsDb";
+import { dbGetAll, dbPut, dbDelete, dbClear, dbBulkPut, dbBulkDelete, migrateFromLocalStorage, normalizeFormationEntry } from "@/utils/formationsDb";
 import { parseCsv, toCsv } from "@/utils/csv";
 import { FORMATION_TAGS, type FormationEntry, type FormationTag } from "@/types";
 
@@ -42,6 +42,19 @@ export interface ImportAnalysis {
   duplicateWithExisting: number;
   /** `entries` with duplicates (both kinds) removed, first occurrence kept. */
   deduped: FormationEntry[];
+}
+
+export interface LibraryDuplicateGroup {
+  /** The entry kept — the oldest of the group by createdAt. */
+  keep: FormationEntry;
+  /** The rest of the group — candidates for removal. */
+  remove: FormationEntry[];
+}
+
+export interface LibraryDuplicateScan {
+  groups: LibraryDuplicateGroup[];
+  /** Total entries across all groups' `remove` lists — how many rows removing everything would delete. */
+  totalDuplicates: number;
 }
 
 function analyzeDuplicates(incoming: FormationEntry[], existing: FormationEntry[]): ImportAnalysis {
@@ -355,6 +368,44 @@ export function useFormations() {
     setHasUnsavedChanges(true);
   }, []);
 
+  /**
+   * Scans the current library itself for exact content duplicates (same
+   * definition as import-time duplicate detection — see `contentFingerprint`
+   * above). For each group of duplicates, the oldest (by createdAt) is kept
+   * and the rest are candidates for removal — this is a scan only, nothing
+   * is deleted until removeDuplicateFormations() is called with the ids the
+   * user actually agreed to remove.
+   */
+  const findLibraryDuplicates = useCallback((): LibraryDuplicateScan => {
+    const byFingerprint = new Map<string, FormationEntry[]>();
+    for (const f of formations) {
+      const fp = contentFingerprint(f);
+      const list = byFingerprint.get(fp);
+      if (list) list.push(f);
+      else byFingerprint.set(fp, [f]);
+    }
+    const groups: LibraryDuplicateGroup[] = [];
+    let totalDuplicates = 0;
+    for (const entries of byFingerprint.values()) {
+      if (entries.length < 2) continue;
+      const sorted = [...entries].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+      const [keep, ...remove] = sorted;
+      groups.push({ keep, remove });
+      totalDuplicates += remove.length;
+    }
+    return { groups, totalDuplicates };
+  }, [formations]);
+
+  /** Removes specific formations by id — used to act on a findLibraryDuplicates() scan the user has approved. */
+  const removeDuplicateFormations = useCallback(async (ids: string[]): Promise<number> => {
+    if (ids.length === 0) return 0;
+    const idSet = new Set(ids);
+    setFormations((prev) => prev.filter((f) => !idSet.has(f.id)));
+    await dbBulkDelete(ids);
+    setHasUnsavedChanges(true);
+    return ids.length;
+  }, []);
+
   /** Call after a manual export or an auto-backup write to clear the "unsaved" reminder state. */
   const markBackedUp = useCallback(() => setHasUnsavedChanges(false), []);
 
@@ -518,6 +569,8 @@ export function useFormations() {
     addFormation,
     updateFormation,
     removeFormation,
+    findLibraryDuplicates,
+    removeDuplicateFormations,
     exportFormations,
     analyzeImportFile,
     commitImport,
