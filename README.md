@@ -300,9 +300,14 @@ It turns the library into a paperback interior file sized for Amazon KDP's 6&tim
   Entries missing a selected field land in a trailing "(No … set)" chapter rather than being
   dropped.
 - **Page layout** — **Continuous** (default): entries flow down each page, several per page where
-  they fit, for a compact reference layout. **One per page**: every formation starts a fresh page
-  instead, trading page count for more white space per entry. Either way it's image on the left,
-  Trait/Detail (and a Tag line) in a column beside it.
+  they fit, for a compact reference layout with tightened inter-entry spacing. **One per page**:
+  every formation starts a fresh page instead, trading page count for more white space per entry.
+  Either way, each entry is three columns — **image** on the left, **Detail** (the primary,
+  readable text) in the middle, and the **Trait** as a short italic tagline on the right (no
+  "Trait:" label — just the trait itself), with a small Tag line above it. Detail and Trait share
+  one uniform body text size rather than one being visually dominant over the other, and all
+  three columns are vertically centered against whichever is tallest, so a short entry next to a
+  comparatively tall image doesn't look top-anchored and lopsided.
 - **Image size** — a 50%-250% slider (default 100%). At 100%, an image is only ever scaled *down*
   to fit its column, never upscaled past its native resolution, so a low-resolution source stays
   sharp but prints smaller. Above 100% the builder will deliberately upscale a small image to
@@ -368,6 +373,15 @@ removes it, which is exactly why backup exists (see below).
   case-insensitively (also recognizing `category` for parameter and `char` for character), skips
   blank rows, and merges/replaces the same way JSON import does. Handy for bulk-editing entries
   in a spreadsheet.
+- **Duplicate detection on import** — before writing anything, an import (JSON or CSV) is checked
+  for exact content duplicates: parameter, character, sub-category, detail, trait, tag, and image
+  all identical (id/createdAt are expected to differ and are ignored). This catches both entries
+  that repeat something already in the library (relevant for merge mode) and entries that repeat
+  each other within the file itself. If any are found, a dialog reports the counts and asks
+  before doing anything — **skip duplicates and import the rest** (default), **import everything
+  anyway**, or **cancel** — rather than silently re-issuing new ids for id collisions the way a
+  naive merge would (which is how re-importing an overlapping backup used to create silent
+  duplicates). A clean import with no duplicates proceeds without any extra prompt.
 - **Automatic backup to a file on disk** — in Chromium-based browsers (Chrome, Edge) that
   support the File System Access API, "Connect a backup file…" opens a native save dialog
   once; after that, every add or remove is written to that same file automatically (debounced

@@ -5,7 +5,7 @@ import { Card, CardTitle, CardSubtitle } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { FORMATIONS_SUB_TABS, type FormationsSubTab } from "@/state/navigation";
-import { useFormations } from "@/state/useFormations";
+import { useFormations, type ImportAnalysis } from "@/state/useFormations";
 import { extractImageFileFromClipboard } from "@/utils/clipboard";
 import { ImageAnnotator } from "./ImageAnnotator";
 import { HANDWRITING_PARAMETERS, FORMATION_TAGS, FORMATION_TAG_LABELS, type FormationEntry, type FormationTag } from "@/types";
@@ -1014,23 +1014,86 @@ function timeAgo(iso: string): string {
   return new Date(iso).toLocaleString();
 }
 
+function DuplicateImportModal({
+  analysis,
+  mode,
+  onResolve,
+}: {
+  analysis: ImportAnalysis;
+  mode: "merge" | "replace";
+  onResolve: (choice: "skip" | "keep" | "cancel") => void;
+}) {
+  const total = analysis.duplicateWithinFile + analysis.duplicateWithExisting;
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 px-4" role="dialog" aria-modal="true">
+      <Card className="max-w-md w-full">
+        <CardTitle>Duplicate entries found</CardTitle>
+        <CardSubtitle>
+          {analysis.duplicateWithExisting > 0 && (
+            <>
+              {analysis.duplicateWithExisting} entr{analysis.duplicateWithExisting === 1 ? "y" : "ies"} in this file{" "}
+              {analysis.duplicateWithExisting === 1 ? "is" : "are"} an exact match (same parameter, character,
+              sub-category, detail, trait, tag, and image) for something already in your library.{" "}
+            </>
+          )}
+          {analysis.duplicateWithinFile > 0 && (
+            <>
+              {analysis.duplicateWithinFile} entr{analysis.duplicateWithinFile === 1 ? "y" : "ies"} repeat
+              {analysis.duplicateWithinFile === 1 ? "s" : ""} another row within this same file.{" "}
+            </>
+          )}
+          {total} of {analysis.entries.length} total will be skipped if you remove duplicates; {analysis.deduped.length}{" "}
+          would be imported{mode === "merge" ? " (merged with what's already here)" : ""}.
+        </CardSubtitle>
+        <div className="mt-4 flex flex-col gap-2">
+          <Button onClick={() => onResolve("skip")}>Skip duplicates, import the rest ({analysis.deduped.length})</Button>
+          <Button variant="outline" onClick={() => onResolve("keep")}>
+            Import everything anyway, keep duplicates ({analysis.entries.length})
+          </Button>
+          <Button variant="outline" onClick={() => onResolve("cancel")}>
+            Cancel import
+          </Button>
+        </div>
+      </Card>
+    </div>
+  );
+}
+
 function BackupTab({ store }: { store: FormationsStore }) {
-  const { formations, exportFormations, importFormations, exportFormationsCsv, importFormationsFromCsv, autoBackup } = store;
+  const { formations, exportFormations, analyzeImportFile, commitImport, exportFormationsCsv, autoBackup } = store;
   const importInputRef = useRef<HTMLInputElement>(null);
   const importCsvInputRef = useRef<HTMLInputElement>(null);
   const [importMode, setImportMode] = useState<"merge" | "replace">("merge");
   const [importMessage, setImportMessage] = useState<string | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
+  const [pendingImport, setPendingImport] = useState<{ analysis: ImportAnalysis; mode: "merge" | "replace" } | null>(null);
+
+  async function finishImport(entries: FormationEntry[], mode: "merge" | "replace") {
+    const count = await commitImport(entries, mode);
+    setImportMessage(`Imported ${count} formation${count === 1 ? "" : "s"} (${mode === "merge" ? "merged with" : "replacing"} existing library).`);
+  }
 
   async function handleImportFile(file: File, kind: "json" | "csv") {
     setImportError(null);
     setImportMessage(null);
     try {
-      const count = kind === "json" ? await importFormations(file, importMode) : await importFormationsFromCsv(file, importMode);
-      setImportMessage(`Imported ${count} formation${count === 1 ? "" : "s"} (${importMode === "merge" ? "merged with" : "replacing"} existing library).`);
+      const analysis = await analyzeImportFile(file, kind, importMode);
+      if (analysis.duplicateWithinFile + analysis.duplicateWithExisting > 0) {
+        setPendingImport({ analysis, mode: importMode });
+      } else {
+        await finishImport(analysis.entries, importMode);
+      }
     } catch (err) {
       setImportError(err instanceof Error ? err.message : "Could not import this file.");
     }
+  }
+
+  async function handleDuplicateChoice(choice: "skip" | "keep" | "cancel") {
+    if (!pendingImport) return;
+    const { analysis, mode } = pendingImport;
+    setPendingImport(null);
+    if (choice === "cancel") return;
+    await finishImport(choice === "skip" ? analysis.deduped : analysis.entries, mode);
   }
 
   const autoBadge = {
@@ -1160,6 +1223,10 @@ function BackupTab({ store }: { store: FormationsStore }) {
           )}
         </div>
       </div>
+
+      {pendingImport && (
+        <DuplicateImportModal analysis={pendingImport.analysis} mode={pendingImport.mode} onResolve={handleDuplicateChoice} />
+      )}
     </Card>
   );
 }

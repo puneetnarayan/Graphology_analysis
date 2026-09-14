@@ -28,6 +28,44 @@ async function fileToStoredDataUrl(file: File): Promise<string> {
   return canvas.toDataURL("image/jpeg", 0.85);
 }
 
+/** Content fields compared to decide whether two entries are exact duplicates — id/createdAt are expected to differ and are ignored. */
+function contentFingerprint(e: FormationEntry): string {
+  return JSON.stringify([e.parameter, e.character ?? "", e.subCategory, e.detail, e.trait, e.tag ?? "", e.imageDataUrl ?? ""]);
+}
+
+export interface ImportAnalysis {
+  /** All entries parsed from the file, unfiltered. */
+  entries: FormationEntry[];
+  /** Count of entries that repeat an earlier row within the same file. */
+  duplicateWithinFile: number;
+  /** Count of entries whose content already matches something in the current library (only meaningful for merge mode). */
+  duplicateWithExisting: number;
+  /** `entries` with duplicates (both kinds) removed, first occurrence kept. */
+  deduped: FormationEntry[];
+}
+
+function analyzeDuplicates(incoming: FormationEntry[], existing: FormationEntry[]): ImportAnalysis {
+  const existingFingerprints = new Set(existing.map(contentFingerprint));
+  const seenInFile = new Set<string>();
+  let duplicateWithinFile = 0;
+  let duplicateWithExisting = 0;
+  const deduped: FormationEntry[] = [];
+  for (const e of incoming) {
+    const fp = contentFingerprint(e);
+    if (existingFingerprints.has(fp)) {
+      duplicateWithExisting += 1;
+      continue;
+    }
+    if (seenInFile.has(fp)) {
+      duplicateWithinFile += 1;
+      continue;
+    }
+    seenInFile.add(fp);
+    deduped.push(e);
+  }
+  return { entries: incoming, duplicateWithinFile, duplicateWithExisting, deduped };
+}
+
 function isFormationEntryLike(v: unknown): v is Record<string, unknown> {
   if (!v || typeof v !== "object") return false;
   const e = v as Record<string, unknown>;
@@ -353,33 +391,24 @@ export function useFormations() {
     setHasUnsavedChanges(true);
   }, []);
 
-  /**
-   * Restores a previously exported (or auto-backed-up) JSON file.
-   * `mode: "merge"` adds entries not already present (re-IDing any id
-   * collision so nothing existing is overwritten); `"replace"` discards the
-   * current library and adopts the file's contents exactly.
-   */
-  const importFormations = useCallback(
-    async (file: File, mode: "merge" | "replace") => {
-      const text = await file.text();
-      const parsed = JSON.parse(text);
-      const incomingRaw: unknown[] = Array.isArray(parsed) ? parsed : Array.isArray(parsed?.formations) ? parsed.formations : null;
-      if (!incomingRaw) throw new Error("This file doesn't look like a Letter Formations backup.");
-      const incoming = incomingRaw
-        .filter(isFormationEntryLike)
-        .map((raw): FormationEntry => normalizeFormationEntry(raw).entry)
-        .map((e) => ({
-          ...e,
-          id: typeof e.id === "string" && e.id ? e.id : newId(),
-          subCategory: e.subCategory ?? "",
-          createdAt: e.createdAt ?? new Date().toISOString(),
-        }));
-      if (incoming.length === 0) throw new Error("No valid formation entries found in this file.");
-      await applyIncoming(incoming, mode);
-      return incoming.length;
-    },
-    [applyIncoming],
-  );
+  /** Parses a JSON backup file into entries, without writing anything yet. */
+  const parseJsonImportFile = useCallback(async (file: File): Promise<FormationEntry[]> => {
+    const text = await file.text();
+    const parsed = JSON.parse(text);
+    const incomingRaw: unknown[] = Array.isArray(parsed) ? parsed : Array.isArray(parsed?.formations) ? parsed.formations : null;
+    if (!incomingRaw) throw new Error("This file doesn't look like a Letter Formations backup.");
+    const incoming = incomingRaw
+      .filter(isFormationEntryLike)
+      .map((raw): FormationEntry => normalizeFormationEntry(raw).entry)
+      .map((e) => ({
+        ...e,
+        id: typeof e.id === "string" && e.id ? e.id : newId(),
+        subCategory: e.subCategory ?? "",
+        createdAt: e.createdAt ?? new Date().toISOString(),
+      }));
+    if (incoming.length === 0) throw new Error("No valid formation entries found in this file.");
+    return incoming;
+  }, []);
 
   /** Downloads the text fields (no images) as a CSV — a spreadsheet-friendly view/edit path. */
   const exportFormationsCsv = useCallback(() => {
@@ -404,9 +433,8 @@ export function useFormations() {
    * column — CSV rows land as text-only entries; add images afterward via
    * Edit. Blank rows (nothing in any recognized column) are skipped.
    */
-  const importFormationsFromCsv = useCallback(
-    async (file: File, mode: "merge" | "replace") => {
-      const text = await file.text();
+  const parseCsvImportFile = useCallback(async (file: File): Promise<FormationEntry[]> => {
+    const text = await file.text();
       const rows = parseCsv(text);
       if (rows.length === 0) throw new Error("This CSV file is empty.");
       const header = rows[0].map((h) => h.trim().toLowerCase());
@@ -451,8 +479,33 @@ export function useFormations() {
           "No usable rows found. Expected a header row naming parameter/category, character, subCategory, detail, trait, and/or tag columns.",
         );
       }
-      await applyIncoming(incoming, mode);
-      return incoming.length;
+      return incoming;
+    },
+    [],
+  );
+
+  /**
+   * Parses an import file (JSON backup or CSV) and checks it for exact
+   * content duplicates — both against what's already in the library and
+   * within the file itself — without writing anything. The caller decides
+   * whether to proceed with `analysis.entries` (keep duplicates) or
+   * `analysis.deduped` (skip them) via commitImport().
+   */
+  const analyzeImportFile = useCallback(
+    async (file: File, kind: "json" | "csv", mode: "merge" | "replace"): Promise<ImportAnalysis> => {
+      const incoming = kind === "json" ? await parseJsonImportFile(file) : await parseCsvImportFile(file);
+      // In "replace" mode the current library is discarded, so matches against it aren't
+      // meaningful duplicates to warn about — only within-file repeats are.
+      return analyzeDuplicates(incoming, mode === "merge" ? formations : []);
+    },
+    [parseJsonImportFile, parseCsvImportFile, formations],
+  );
+
+  /** Writes entries the caller has already decided on (see analyzeImportFile) into the library. */
+  const commitImport = useCallback(
+    async (entries: FormationEntry[], mode: "merge" | "replace"): Promise<number> => {
+      await applyIncoming(entries, mode);
+      return entries.length;
     },
     [applyIncoming],
   );
@@ -466,9 +519,9 @@ export function useFormations() {
     updateFormation,
     removeFormation,
     exportFormations,
-    importFormations,
+    analyzeImportFile,
+    commitImport,
     exportFormationsCsv,
-    importFormationsFromCsv,
     autoBackup: {
       supported,
       status: autoBackupStatus,

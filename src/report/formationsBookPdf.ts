@@ -199,72 +199,75 @@ function drawCopyrightPage(b: BookPdfBuilder, options: BookOptions): void {
   b.markChromeFree();
 }
 
+const MUTED_COLOR: [number, number, number] = [128, 120, 112];
+/** Uniform body size for both Detail and Trait — same scale, different voice (regular vs. italic), not different sizes. */
+const ENTRY_BODY_SIZE = 10.5;
+
 /**
- * One formation, image and text side by side: image on the left, Tag/Trait/
- * Detail in a column on the right. Both columns are measured first so the
- * page break (if any) happens before drawing, not mid-entry. `imageScale`
- * (1 = default size, native resolution only; >1 prints larger, upscaling
- * past native resolution if the source is small) comes straight from the
- * user's Image size control.
+ * One formation, three columns: image (left) · Detail (center, the primary
+ * readable text) · Trait (right, a short italic tagline — no "Trait:"
+ * label, just the trait itself). All three are measured first, then
+ * vertically centered against whichever is tallest, so a short entry next
+ * to a comparatively tall image doesn't look top-anchored and lopsided.
+ * `imageScale` (1 = default size, native resolution only; >1 prints
+ * larger, upscaling past native resolution if the source is small) comes
+ * straight from the user's Image size control.
  */
 function drawEntry(b: BookPdfBuilder, f: FormationEntry, imageScale: number): void {
-  const baseColFrac = 0.44;
-  const imgColFrac = Math.min(0.7, baseColFrac * imageScale);
-  const imgColW = BOOK_CONTENT_W * imgColFrac;
-  const gap = 6;
-  const textColW = BOOK_CONTENT_W - imgColW - gap;
-  const lineGap = (size: number) => size * 0.52;
-  const maxImgH = Math.min(190, 120 * imageScale);
+  const gap = 5;
+  const lineGap = ENTRY_BODY_SIZE * 0.52;
+
+  const imgColW = BOOK_CONTENT_W * Math.min(0.55, 0.28 * imageScale);
+  const remW = BOOK_CONTENT_W - imgColW - gap * 2;
+  const detailColW = remW * 0.6;
+  const traitColW = remW - detailColW;
+  const maxImgH = Math.min(190, 100 * imageScale);
 
   const imgBox = f.imageDataUrl ? b.measureImageBox(f.imageDataUrl, imgColW, maxImgH, imageScale) : { w: 0, h: 0 };
 
-  const blocks: { lines: string[]; size: number; bold?: boolean; italic?: boolean; color?: [number, number, number]; gapBefore: number }[] = [];
-  if (f.tag) {
-    blocks.push({
-      lines: b.measureParagraphLines(`Tag: ${FORMATION_TAG_LABELS[f.tag]}`, textColW, 8, "helvetica", true),
-      size: 8,
-      bold: true,
-      color: [128, 120, 112],
-      gapBefore: 0,
-    });
-  }
-  if (f.trait.trim()) {
-    blocks.push({
-      lines: b.measureParagraphLines(`Trait: ${f.trait.trim()}`, textColW, 12.5, "times", true),
-      size: 12.5,
-      bold: true,
-      gapBefore: blocks.length ? 3 : 0,
-    });
-  }
-  if (f.detail.trim()) {
-    blocks.push({
-      lines: b.measureParagraphLines(f.detail.trim(), textColW, 10, "times"),
-      size: 10,
-      gapBefore: blocks.length ? 3 : 0,
-    });
-  }
-  if (blocks.length === 0) {
-    blocks.push({ lines: ["(No trait or detail recorded for this entry.)"], size: 9, italic: true, color: [128, 120, 112], gapBefore: 0 });
-  }
+  const hasDetail = !!f.detail.trim();
+  const hasTrait = !!f.trait.trim();
+  const detailLines = hasDetail
+    ? b.measureParagraphLines(f.detail.trim(), detailColW, ENTRY_BODY_SIZE, "times")
+    : hasTrait
+      ? []
+      : b.measureParagraphLines("(No detail recorded for this entry.)", detailColW, ENTRY_BODY_SIZE, "times");
+  const traitLines = hasTrait ? b.measureParagraphLines(f.trait.trim(), traitColW, ENTRY_BODY_SIZE, "times") : [];
+  const tagLines = f.tag ? b.measureParagraphLines(FORMATION_TAG_LABELS[f.tag], traitColW, 7.5, "helvetica", true) : [];
+  const tagBlockH = tagLines.length ? tagLines.length * 3.9 + 2 : 0;
 
-  const textH = blocks.reduce((sum, blk) => sum + blk.gapBefore + blk.lines.length * lineGap(blk.size), 0);
-  const totalH = Math.max(imgBox.h, textH);
-  b.ensureSpace(totalH + 8);
+  const detailH = detailLines.length * lineGap;
+  const traitH = tagBlockH + traitLines.length * lineGap;
+  const totalH = Math.max(imgBox.h, detailH, traitH, 6);
 
+  b.ensureSpace(totalH + 6);
   const topY = b.y;
   const x = b.contentLeft();
+
   if (f.imageDataUrl && imgBox.w > 0) {
-    b.drawImageBox(f.imageDataUrl, x, topY, imgBox.w, imgBox.h);
+    b.drawImageBox(f.imageDataUrl, x, topY + (totalH - imgBox.h) / 2, imgBox.w, imgBox.h);
   }
 
-  const textX = x + imgColW + gap;
-  let ty = topY;
-  for (const blk of blocks) {
-    ty += blk.gapBefore;
-    ty = b.drawParagraphLines(blk.lines, textX, ty, { size: blk.size, bold: blk.bold, italic: blk.italic, color: blk.color });
+  const detailX = x + imgColW + gap;
+  if (detailLines.length) {
+    b.drawParagraphLines(detailLines, detailX, topY + (totalH - detailH) / 2, {
+      size: ENTRY_BODY_SIZE,
+      italic: !hasDetail && !hasTrait,
+      color: !hasDetail && !hasTrait ? MUTED_COLOR : undefined,
+    });
   }
 
-  b.y = topY + totalH + 10;
+  const traitX = detailX + detailColW + gap;
+  let ty = topY + (totalH - traitH) / 2;
+  if (tagLines.length) {
+    ty = b.drawParagraphLines(tagLines, traitX, ty, { size: 7.5, bold: true, color: MUTED_COLOR });
+    ty += 2;
+  }
+  if (traitLines.length) {
+    b.drawParagraphLines(traitLines, traitX, ty, { size: ENTRY_BODY_SIZE, italic: true });
+  }
+
+  b.y = topY + totalH + 6;
 }
 
 function slugify(s: string): string {

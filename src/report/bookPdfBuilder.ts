@@ -188,7 +188,7 @@ export class BookPdfBuilder {
     this.setDrawColor(ACCENT);
     this.doc.setLineWidth(1);
     this.doc.line(x, this.y, x + 16, this.y);
-    this.y += 10;
+    this.y += 6;
   }
 
   /** An inline sub-heading within a chapter (not a TOC entry, just a visual grouping label). */
