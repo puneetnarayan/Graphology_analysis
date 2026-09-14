@@ -193,7 +193,28 @@ formation, paired with the trait it's said to indicate. It has two sub-tabs:
 are saved to this browser's `localStorage`, not to any server — consistent with the rest of
 the app's no-backend architecture, but unlike the analyzed handwriting sample, this library
 is *intentionally* persisted across sessions/reloads so it can be built up over time. Clearing
-your browser's site data for this app removes it.
+your browser's site data for this app removes it, which is exactly why backup exists (see below).
+
+**Backup &amp; restore.** A "Backup & Restore" card sits above both sub-tabs (`src/state/useFormations.ts`):
+
+- **Export as JSON** / **Import from JSON** — always available, in every browser. Export
+  downloads the whole library (images included, as data URLs) as one `.json` file; Import
+  reads one back, either **merging** it into what's already here (default — any id collision
+  is re-issued a new id so nothing existing is overwritten) or **replacing** the library
+  outright (checkbox next to Import).
+- **Automatic backup to a file on disk** — in Chromium-based browsers (Chrome, Edge) that
+  support the File System Access API, "Connect a backup file…" opens a native save dialog
+  once; after that, every add or remove is written to that same file automatically (debounced
+  ~800ms after the last change), with no further prompts, for as long as the browser's
+  permission grant lasts. The chosen file's handle is kept in IndexedDB (`src/utils/fileHandleStore.ts`)
+  so the connection survives a reload; if the browser later revokes the write permission (this
+  varies by browser and can happen after a restart), the card shows "needs reconnecting" with a
+  one-click Reconnect button rather than silently failing. In browsers without this API (Firefox,
+  Safari as of this writing), the card says so and Export/Import is the supported path — doing a
+  manual Export after a session where you added several formations is the reliable equivalent.
+
+Both paths write the same JSON shape, so a file saved by auto-backup can also be restored via
+Import, and vice versa.
 
 **Not wired into the rule engine.** This is a reference library you curate, not an input to
 the automated analysis — entries here do not feed the graphology rule engine, trait scoring,

@@ -3,9 +3,12 @@
 import { useMemo, useRef, useState, type DragEvent } from "react";
 import { Card, CardTitle, CardSubtitle } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
+import { Badge } from "@/components/ui/Badge";
 import { FORMATIONS_SUB_TABS, type FormationsSubTab } from "@/state/navigation";
 import { useFormations } from "@/state/useFormations";
 import type { FormationEntry } from "@/types";
+
+type FormationsStore = ReturnType<typeof useFormations>;
 
 function DropZone({
   file,
@@ -194,8 +197,8 @@ function EntryForm({
   );
 }
 
-function AddFormationTab() {
-  const { formations, addFormation, removeFormation } = useFormations();
+function AddFormationTab({ store }: { store: FormationsStore }) {
+  const { formations, addFormation, removeFormation } = store;
   const { categories, subCategories } = useCategoryOptions(formations);
   const [draft, setDraft] = useState<DraftFields>(EMPTY_DRAFT);
   const [isSaving, setIsSaving] = useState(false);
@@ -270,8 +273,8 @@ function AddFormationTab() {
   );
 }
 
-function FormationTableTab() {
-  const { formations, loaded, addFormation, removeFormation } = useFormations();
+function FormationTableTab({ store }: { store: FormationsStore }) {
+  const { formations, loaded, addFormation, removeFormation } = store;
   const { categories, subCategories } = useCategoryOptions(formations);
   const [draft, setDraft] = useState<DraftFields>(EMPTY_DRAFT);
   const [isSaving, setIsSaving] = useState(false);
@@ -364,7 +367,143 @@ function FormationTableTab() {
   );
 }
 
+function timeAgo(iso: string): string {
+  const seconds = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000);
+  if (seconds < 5) return "just now";
+  if (seconds < 60) return `${Math.floor(seconds)}s ago`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+  return new Date(iso).toLocaleString();
+}
+
+function BackupControls({ store }: { store: FormationsStore }) {
+  const { formations, exportFormations, importFormations, autoBackup } = store;
+  const importInputRef = useRef<HTMLInputElement>(null);
+  const [importMode, setImportMode] = useState<"merge" | "replace">("merge");
+  const [importMessage, setImportMessage] = useState<string | null>(null);
+  const [importError, setImportError] = useState<string | null>(null);
+
+  async function handleImportFile(file: File) {
+    setImportError(null);
+    setImportMessage(null);
+    try {
+      const count = await importFormations(file, importMode);
+      setImportMessage(`Imported ${count} formation${count === 1 ? "" : "s"} (${importMode === "merge" ? "merged with" : "replacing"} existing library).`);
+    } catch (err) {
+      setImportError(err instanceof Error ? err.message : "Could not import this file.");
+    }
+  }
+
+  const autoBadge = {
+    unsupported: null,
+    disabled: <Badge tone="neutral">Auto-backup off</Badge>,
+    active: <Badge tone="success">Auto-backup on{autoBackup.fileName ? ` — ${autoBackup.fileName}` : ""}</Badge>,
+    "permission-needed": <Badge tone="warning">Auto-backup needs reconnecting</Badge>,
+    error: <Badge tone="danger">Auto-backup error</Badge>,
+  }[autoBackup.status];
+
+  return (
+    <Card>
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <div>
+          <CardTitle>Backup &amp; Restore</CardTitle>
+          <CardSubtitle>
+            {formations.length} formation{formations.length === 1 ? "" : "s"} saved in this browser. Export/import
+            work everywhere; automatic backup to a file on disk is available in Chromium browsers (Chrome, Edge).
+          </CardSubtitle>
+        </div>
+        {autoBadge}
+      </div>
+
+      <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div className="rounded-xl bg-surface-alt px-4 py-3">
+          <p className="text-xs font-semibold text-text-strong mb-2">Manual backup (all browsers)</p>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" onClick={exportFormations} disabled={formations.length === 0}>
+              Export as JSON
+            </Button>
+            <Button variant="outline" onClick={() => importInputRef.current?.click()}>
+              Import from JSON
+            </Button>
+            <input
+              ref={importInputRef}
+              type="file"
+              accept="application/json,.json"
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) handleImportFile(f);
+                e.target.value = "";
+              }}
+            />
+          </div>
+          <label className="mt-2 flex items-center gap-2 text-xs text-text-muted">
+            <input
+              type="checkbox"
+              checked={importMode === "replace"}
+              onChange={(e) => setImportMode(e.target.checked ? "replace" : "merge")}
+            />
+            Replace entire library on import (unchecked = merge with what&apos;s already here)
+          </label>
+          {importMessage && <p className="mt-2 text-xs text-[#2f6b4d]">{importMessage}</p>}
+          {importError && <p className="mt-2 text-xs text-danger">{importError}</p>}
+        </div>
+
+        <div className="rounded-xl bg-surface-alt px-4 py-3">
+          <p className="text-xs font-semibold text-text-strong mb-2">Automatic backup to disk</p>
+          {!autoBackup.supported && (
+            <p className="text-xs text-text-muted">
+              Not available in this browser. Use Export/Import (left) as your backup — ideally after adding a batch
+              of formations.
+            </p>
+          )}
+          {autoBackup.supported && autoBackup.status === "disabled" && (
+            <>
+              <p className="text-xs text-text-muted mb-2">
+                Connect a file once; every add/remove is then written to it automatically, no further prompts.
+              </p>
+              <Button variant="outline" onClick={autoBackup.enable}>
+                Connect a backup file…
+              </Button>
+            </>
+          )}
+          {autoBackup.status === "active" && (
+            <>
+              <p className="text-xs text-text-muted">
+                Writing to <strong>{autoBackup.fileName}</strong> automatically.{" "}
+                {autoBackup.lastBackupAt ? `Last saved ${timeAgo(autoBackup.lastBackupAt)}.` : ""}
+              </p>
+              <Button variant="ghost" className="mt-2 px-0 text-xs text-text-muted hover:text-danger" onClick={autoBackup.disable}>
+                Disconnect
+              </Button>
+            </>
+          )}
+          {autoBackup.status === "permission-needed" && (
+            <>
+              <p className="text-xs text-text-muted mb-2">
+                Permission to write to {autoBackup.fileName ?? "the backup file"} needs to be reconfirmed (this
+                happens after a browser restart in some cases).
+              </p>
+              <Button variant="outline" onClick={autoBackup.reconnect}>
+                Reconnect
+              </Button>
+            </>
+          )}
+          {autoBackup.status === "error" && (
+            <>
+              <p className="text-xs text-danger mb-2">{autoBackup.error ?? "Auto-backup failed."}</p>
+              <Button variant="outline" onClick={autoBackup.reconnect}>
+                Retry
+              </Button>
+            </>
+          )}
+        </div>
+      </div>
+    </Card>
+  );
+}
+
 export function FormationsPanel() {
+  const store = useFormations();
   const [subTab, setSubTab] = useState<FormationsSubTab>("add");
 
   return (
@@ -378,6 +517,8 @@ export function FormationsPanel() {
           app.
         </p>
       </div>
+
+      <BackupControls store={store} />
 
       <div className="flex gap-1.5 overflow-x-auto scrollbar-thin pb-1 -mx-1 px-1">
         {FORMATIONS_SUB_TABS.map((tab) => (
@@ -393,8 +534,8 @@ export function FormationsPanel() {
         ))}
       </div>
 
-      {subTab === "add" && <AddFormationTab />}
-      {subTab === "table" && <FormationTableTab />}
+      {subTab === "add" && <AddFormationTab store={store} />}
+      {subTab === "table" && <FormationTableTab store={store} />}
     </div>
   );
 }
