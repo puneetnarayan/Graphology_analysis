@@ -280,13 +280,30 @@ from both directions (e.g. some evidence pushing higher, some lower) are flagged
 **contradictions** with a synthesized reconciliation sentence rather than being
 silently averaged away.
 
+## Fully automatic pipeline — no button presses
+
+Uploading a sample is the only action needed. `loadFile` in `src/state/workflowStore.tsx`
+runs the entire pipeline itself the moment a file is chosen or pasted: auto-tuning Tone &
+Clarity (if enabled, on by default), scan-quality assessment, and the full
+feature-extraction/rule-engine pass, landing you on the **Analysis** tab with Personality
+Profile, Evidence & Rules and Report all populated — no "Continue to Scan Quality" or
+"Accept & Analyze" click required. Those buttons still exist (Image Preparation and Scan
+Quality remain fully browsable/adjustable) for re-running deliberately after you tweak
+something, but they're no longer gates you have to clear to see a result.
+
+The one deliberate exception is **Letter Recognition (OCR)** (see above): it stays a manual
+"Run OCR" click, since running it fetches Tesseract's language model from an external CDN on
+first use — a network request the app doesn't make without explicit action, consistent with
+the privacy note on that tab.
+
 ## Live re-analysis
 
 Scan quality assessment, feature extraction and rule evaluation run together as one
 continuous pass in the Web Worker (`runFullAnalysis` in `src/state/workflowStore.tsx`) —
 there's no separate staged wait between steps once it starts.
 
-After your first **Accept & Analyze**, any further change on the **Image Preparation**
+Since upload already triggers the first full pass automatically (see above), any further
+change on the **Image Preparation**
 tab (rotate, crop, brightness, threshold, etc.) automatically reschedules that same
 pass: it waits for a short, configurable debounce (default **0.2s**, adjustable via the
 "Live update delay" slider on that tab, 0.05s–1.5s) after your last change, then reruns

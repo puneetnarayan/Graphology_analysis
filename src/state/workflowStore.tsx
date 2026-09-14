@@ -289,6 +289,10 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
           orientation: inferOrientation(canvas.width, canvas.height),
           loadedAt: new Date().toISOString(),
         };
+        // Set the ref synchronously too — runFullAnalysis (called below, in
+        // this same tick) reads sampleMetadataRef directly, and the effect
+        // that normally keeps it in sync with state hasn't run yet.
+        sampleMetadataRef.current = metadata;
         setFile(f);
         setSampleMetadata(metadata);
         setOriginalDataUrl(toAnalysisCanvas(canvas, 1000).toDataURL("image/png"));
@@ -316,12 +320,20 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
         }
         setPreprocessing(initialSettings);
         recomputePreview(initialSettings);
-        setActiveSection("prepare");
+
+        // Fully automatic from here: no "Continue to Scan Quality" or
+        // "Accept & Analyze" click needed. This also flips acceptedRef on
+        // immediately, so if the user does go tweak Preparation settings
+        // afterward, that already-existing live-update path re-analyzes in
+        // the background rather than requiring another manual accept.
+        setAccepted(true);
+        acceptedRef.current = true;
+        await runFullAnalysis(initialSettings, { initial: true });
       } catch (err) {
         setError(err instanceof Error ? err.message : "Could not load this file.");
       }
     },
-    [autoCorrectEnabled, clearDebounceTimer, recomputePreview, releaseMemory],
+    [autoCorrectEnabled, clearDebounceTimer, recomputePreview, releaseMemory, runFullAnalysis],
   );
 
   const updatePreprocessing = useCallback(
