@@ -174,6 +174,42 @@ and swaps in the new numbers once ready. The Image Preparation tab itself shows 
 live analysis confidence with a trend indicator (▲/▼ and the point delta) so you can see
 immediately whether a change you just made improved or hurt overall confidence.
 
+## Evidence traceability: click a rule, see the ink
+
+Every triggered rule and every evidence-table row is clickable (`RuleChip`,
+`src/components/ui/RuleChip.tsx`). Clicking a rule ID anywhere in the app — a chip
+under a Personality Profile trait, a "Rules Triggered" entry on an Analysis tab, a row
+in the Evidence table, or an entry in Rule Activations — jumps to **Evidence & Rules**
+and highlights every handwriting region that rule actually used, as a light-grey overlay
+box on the scan (`src/state/workflowStore.tsx`'s `highlightedRuleId` /
+`goToRuleEvidence`). Every feature extractor attaches representative region(s) to its
+`Observation` (word/line bounding boxes for spacing, component bounding boxes for
+size/margins/zones/pressure/legibility/rhythm, unioned bar+stem boxes for t-bars and
+i-dots, component boxes for ovals), and each rule forwards `observation.regions` as its
+own evidence regions — so "what part of the handwriting produced this" is answerable for
+essentially every rule, not just slant/baseline.
+
+## PDF report
+
+`npm`'s `jspdf` + `jspdf-autotable` build a properly paginated PDF
+(`src/report/pdfBuilder.ts` + `src/report/pdfExport.ts`):
+
+- A clean cover page (title, sample info, embedded preview image, key stats, privacy
+  note) — no running header/footer clutter.
+- A dedicated, hyperlinked **Table of Contents** page: every section title is a
+  clickable link to its first page.
+- A running header (report title + current section name) and footer (**Page X of N**)
+  on every content page.
+- An **Index** link in the header of every content page that returns not just to the
+  Contents page, but to the exact line for that section (`/XYZ` destination with the
+  TOC row's y-position) — click Index from deep in the Evidence table and you land back
+  on that section's own TOC row, not the top of the page.
+- Tables (Component Averages, Feature Readiness, Observed Characteristics, Rule
+  Activations, Handwriting Portions Used) render via `jspdf-autotable` with repeated
+  headers and automatic pagination; trait cards and callouts (Contradictions,
+  Limitations, Disclaimer) use hand-rolled rounded-rect primitives in the same pastel
+  accent palette as the app, not the browser's default black-and-white print output.
+
 ## Testing
 
 `npm test` runs Vitest unit tests covering:

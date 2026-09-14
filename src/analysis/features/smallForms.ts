@@ -3,16 +3,37 @@ import { median, mean, coefficientOfVariation, clamp } from "@/utils/stats";
 import type {
   FeatureModuleResult,
   IDotMeasurement,
+  ImageRegion,
   OvalMeasurement,
   TBarMeasurement,
 } from "@/types";
 import type { ConnectedComponent } from "@/utils/segmentation";
+import { componentRegion } from "./common";
 import { featureReadability, type PipelineContext } from "./pipelineContext";
 
 function componentDims(c: ConnectedComponent) {
   const w = c.maxX - c.minX + 1;
   const h = c.maxY - c.minY + 1;
   return { w, h, cx: (c.minX + c.maxX) / 2, cy: (c.minY + c.maxY) / 2 };
+}
+
+/** Bounding region spanning two components (e.g. a t-bar crossbar and its stem). */
+function unionRegion(a: ConnectedComponent, b: ConnectedComponent, canvasWidth: number, canvasHeight: number, label: string): ImageRegion {
+  const minX = Math.min(a.minX, b.minX);
+  const minY = Math.min(a.minY, b.minY);
+  const maxX = Math.max(a.maxX, b.maxX);
+  const maxY = Math.max(a.maxY, b.maxY);
+  return {
+    x: minX / canvasWidth,
+    y: minY / canvasHeight,
+    width: Math.max(1, maxX - minX) / canvasWidth,
+    height: Math.max(1, maxY - minY) / canvasHeight,
+    label,
+  };
+}
+
+function sampleRegions(regions: ImageRegion[], limit = 5): ImageRegion[] {
+  return regions.slice(0, limit);
 }
 
 /**
@@ -28,7 +49,7 @@ export function extractTBars(ctx: PipelineContext): FeatureModuleResult<TBarMeas
   const key = "tBars";
   const label = "T-Bars";
   const bandByLine = new Map(ctx.xHeightBands.map((b) => [b.lineIndex, b]));
-  const results: { heightRatio: number; lengthRatio: number }[] = [];
+  const results: { heightRatio: number; lengthRatio: number; region: ImageRegion }[] = [];
 
   for (const [lineIdx, comps] of ctx.componentsByLine) {
     const band = bandByLine.get(lineIdx);
@@ -44,7 +65,7 @@ export function extractTBars(ctx: PipelineContext): FeatureModuleResult<TBarMeas
       if (!stem) continue;
       const heightRatio = (band.top - cy) / band.height;
       const lengthRatio = w / (median(comps.map((cc) => cc.maxX - cc.minX + 1)) || 1);
-      results.push({ heightRatio, lengthRatio });
+      results.push({ heightRatio, lengthRatio, region: unionRegion(bar, stem, ctx.canvasWidth, ctx.canvasHeight, "T-bar crossing") });
     }
   }
 
@@ -87,7 +108,14 @@ export function extractTBars(ctx: PipelineContext): FeatureModuleResult<TBarMeas
       : `Insufficient evidence: only ${results.length} t-bar crossings detected (minimum ${T_BAR_THRESHOLDS.MIN_RELIABLE_COUNT} required for interpretation).`,
     measurement,
     observation: available
-      ? { id: "obs-tbars", value: measurement, confidence, source: "automatic", sampleCount: results.length }
+      ? {
+          id: "obs-tbars",
+          value: measurement,
+          confidence,
+          source: "automatic",
+          sampleCount: results.length,
+          regions: sampleRegions(results.map((r) => r.region)),
+        }
       : undefined,
   };
 }
@@ -96,7 +124,7 @@ export function extractIDots(ctx: PipelineContext): FeatureModuleResult<IDotMeas
   const key = "iDots";
   const label = "I-Dots";
   const bandByLine = new Map(ctx.xHeightBands.map((b) => [b.lineIndex, b]));
-  const results: { vOffset: number; hOffset: number; circular: boolean }[] = [];
+  const results: { vOffset: number; hOffset: number; circular: boolean; region: ImageRegion }[] = [];
 
   for (const [lineIdx, comps] of ctx.componentsByLine) {
     const band = bandByLine.get(lineIdx);
@@ -124,6 +152,7 @@ export function extractIDots(ctx: PipelineContext): FeatureModuleResult<IDotMeas
         vOffset: (stem.minY - dot.maxY) / band.height,
         hOffset: (cx - sDims.cx) / (median(comps.map((cc) => cc.maxX - cc.minX + 1)) || 1),
         circular: aspect > 0.65 && aspect < 1.5,
+        region: unionRegion(dot, stem, ctx.canvasWidth, ctx.canvasHeight, "I-dot"),
       });
     }
   }
@@ -161,7 +190,14 @@ export function extractIDots(ctx: PipelineContext): FeatureModuleResult<IDotMeas
       : `Insufficient evidence: only ${results.length} i-dots detected (minimum ${I_DOT_THRESHOLDS.MIN_RELIABLE_COUNT} required).`,
     measurement,
     observation: available
-      ? { id: "obs-idots", value: measurement, confidence, source: "automatic", sampleCount: results.length }
+      ? {
+          id: "obs-idots",
+          value: measurement,
+          confidence,
+          source: "automatic",
+          sampleCount: results.length,
+          regions: sampleRegions(results.map((r) => r.region)),
+        }
       : undefined,
   };
 }
@@ -169,7 +205,7 @@ export function extractIDots(ctx: PipelineContext): FeatureModuleResult<IDotMeas
 export function extractOvals(ctx: PipelineContext): FeatureModuleResult<OvalMeasurement> {
   const key = "ovals";
   const label = "Ovals";
-  const results: { compression: number; open: boolean }[] = [];
+  const results: { compression: number; open: boolean; region: ImageRegion }[] = [];
 
   for (const c of ctx.plausibleComponents) {
     const info = ctx.componentShapes.get(c.id);
@@ -177,7 +213,11 @@ export function extractOvals(ctx: PipelineContext): FeatureModuleResult<OvalMeas
     if (info.bucket !== "x_height_closed_loop" && info.bucket !== "x_height_open_round") continue;
     const { w, h } = componentDims(c);
     const compression = 1 - Math.min(w, h) / Math.max(w, h);
-    results.push({ compression, open: info.bucket === "x_height_open_round" });
+    results.push({
+      compression,
+      open: info.bucket === "x_height_open_round",
+      region: componentRegion(c, ctx.canvasWidth, ctx.canvasHeight, "Oval form"),
+    });
   }
 
   const available = results.length >= OVAL_THRESHOLDS.MIN_RELIABLE_COUNT;
@@ -212,7 +252,14 @@ export function extractOvals(ctx: PipelineContext): FeatureModuleResult<OvalMeas
       : `Insufficient evidence: only ${results.length} oval forms detected (minimum ${OVAL_THRESHOLDS.MIN_RELIABLE_COUNT} required).`,
     measurement,
     observation: available
-      ? { id: "obs-ovals", value: measurement, confidence, source: "automatic", sampleCount: results.length }
+      ? {
+          id: "obs-ovals",
+          value: measurement,
+          confidence,
+          source: "automatic",
+          sampleCount: results.length,
+          regions: sampleRegions(results.map((r) => r.region)),
+        }
       : undefined,
   };
 }

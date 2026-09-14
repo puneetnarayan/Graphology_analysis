@@ -5,6 +5,7 @@ import { Card, CardTitle, CardSubtitle } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { LiveUpdateBadge } from "@/components/ui/LiveUpdateBadge";
+import { RuleChip } from "@/components/ui/RuleChip";
 
 const TONES = ["primary", "mint", "sky", "peach", "blush", "butter"] as const;
 
@@ -65,13 +66,15 @@ export function ProfilePanel() {
             <p className="mt-3 text-sm text-text-body">{trait.synthesisText}</p>
             <div className="mt-3 flex flex-wrap gap-1.5">
               {trait.supportingRuleIds.map((id) => (
-                <span key={id} className="font-mono text-[10px] rounded bg-mint-soft text-[#2f6b52] px-1.5 py-0.5">
-                  ✓ {id}
+                <span key={id} className="flex items-center gap-1">
+                  <span className="text-[10px] text-[#2f6b52]">✓</span>
+                  <RuleChip ruleId={id} tone="success" />
                 </span>
               ))}
               {trait.contradictingRuleIds.map((id) => (
-                <span key={id} className="font-mono text-[10px] rounded bg-blush-soft text-[#8a3455] px-1.5 py-0.5">
-                  △ {id}
+                <span key={id} className="flex items-center gap-1">
+                  <span className="text-[10px] text-[#8a3455]">△</span>
+                  <RuleChip ruleId={id} tone="danger" />
                 </span>
               ))}
             </div>

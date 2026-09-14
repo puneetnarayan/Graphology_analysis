@@ -1,6 +1,7 @@
 import { PRESSURE_THRESHOLDS } from "@/config/thresholds";
 import { clamp, coefficientOfVariation } from "@/utils/stats";
 import type { FeatureModuleResult, PressureClass, PressureProxyMeasurement } from "@/types";
+import { componentRegion } from "./common";
 import { featureReadability, type PipelineContext } from "./pipelineContext";
 
 function classify(score: number): PressureClass {
@@ -96,6 +97,10 @@ export function extractPressure(ctx: PipelineContext): FeatureModuleResult<Press
       source: "automatic",
       sampleCount: comps.length,
       notes: "Image-derived pressure proxy. Physical pen pressure cannot be measured from a standard scan.",
+      regions: [...comps]
+        .sort((a, b) => b.area - a.area)
+        .slice(0, 5)
+        .map((c) => componentRegion(c, ctx.canvasWidth, ctx.canvasHeight, "Sampled for ink density")),
     },
   };
 }

@@ -1,5 +1,6 @@
 import { stdDev, mean } from "@/utils/stats";
 import type { FeatureModuleResult, MarginMeasurement } from "@/types";
+import { componentRegion } from "./common";
 import { featureReadability, type PipelineContext } from "./pipelineContext";
 
 export function extractMargins(ctx: PipelineContext): FeatureModuleResult<MarginMeasurement> {
@@ -60,6 +61,12 @@ export function extractMargins(ctx: PipelineContext): FeatureModuleResult<Margin
       confidence,
       source: "automatic",
       sampleCount: lineStarts.length,
+      regions: [
+        componentRegion(comps.reduce((a, b) => (a.minX < b.minX ? a : b)), ctx.canvasWidth, ctx.canvasHeight, "Left margin edge"),
+        componentRegion(comps.reduce((a, b) => (a.maxX > b.maxX ? a : b)), ctx.canvasWidth, ctx.canvasHeight, "Right margin edge"),
+        componentRegion(comps.reduce((a, b) => (a.minY < b.minY ? a : b)), ctx.canvasWidth, ctx.canvasHeight, "Top margin edge"),
+        componentRegion(comps.reduce((a, b) => (a.maxY > b.maxY ? a : b)), ctx.canvasWidth, ctx.canvasHeight, "Bottom margin edge"),
+      ],
     },
   };
 }

@@ -23,7 +23,7 @@ export const letterRules: Rule[] = [
         sufficiencyMin: OVAL_THRESHOLDS.MIN_RELIABLE_COUNT,
         sufficiencyFull: 25,
         measurementLabel: `Mean oval compression ${o.measurement.meanCompression}`,
-        regions: [],
+        regions: o.observation?.regions ?? [],
       };
     },
   }),
@@ -48,7 +48,7 @@ export const letterRules: Rule[] = [
         sufficiencyMin: OVAL_THRESHOLDS.MIN_RELIABLE_COUNT,
         sufficiencyFull: 25,
         measurementLabel: `Open oval fraction ${(o.measurement.openFraction * 100).toFixed(0)}%`,
-        regions: [],
+        regions: o.observation?.regions ?? [],
       };
     },
   }),
@@ -72,7 +72,7 @@ export const letterRules: Rule[] = [
         sufficiencyMin: T_BAR_THRESHOLDS.MIN_RELIABLE_COUNT,
         sufficiencyFull: 20,
         measurementLabel: `Mean t-bar height ratio ${t.measurement.meanHeightRatio}`,
-        regions: [],
+        regions: t.observation?.regions ?? [],
       };
     },
   }),
@@ -93,7 +93,7 @@ export const letterRules: Rule[] = [
         sufficiencyMin: T_BAR_THRESHOLDS.MIN_RELIABLE_COUNT,
         sufficiencyFull: 20,
         measurementLabel: `Mean t-bar height ratio ${t.measurement.meanHeightRatio}`,
-        regions: [],
+        regions: t.observation?.regions ?? [],
       };
     },
   }),
@@ -114,7 +114,7 @@ export const letterRules: Rule[] = [
         sufficiencyMin: I_DOT_THRESHOLDS.MIN_RELIABLE_COUNT,
         sufficiencyFull: 20,
         measurementLabel: `Circular i-dots ${(i.measurement.circularFraction * 100).toFixed(0)}%`,
-        regions: [],
+        regions: i.observation?.regions ?? [],
       };
     },
   }),
@@ -135,7 +135,7 @@ export const letterRules: Rule[] = [
         sufficiencyMin: I_DOT_THRESHOLDS.MIN_RELIABLE_COUNT,
         sufficiencyFull: 20,
         measurementLabel: `Mean i-dot vertical offset ${i.measurement.meanVerticalOffsetRatio}`,
-        regions: [],
+        regions: i.observation?.regions ?? [],
       };
     },
   }),

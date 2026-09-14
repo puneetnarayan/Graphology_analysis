@@ -1,6 +1,7 @@
 import { ZONE_THRESHOLDS } from "@/config/thresholds";
 import { coefficientOfVariation, mean } from "@/utils/stats";
-import type { FeatureModuleResult, ZoneMeasurement } from "@/types";
+import type { FeatureModuleResult, ImageRegion, ZoneMeasurement } from "@/types";
+import { componentRegion } from "./common";
 import { featureReadability, type PipelineContext } from "./pipelineContext";
 
 export function extractZones(ctx: PipelineContext): FeatureModuleResult<ZoneMeasurement[]> {
@@ -24,18 +25,24 @@ export function extractZones(ctx: PipelineContext): FeatureModuleResult<ZoneMeas
   const middleExt: number[] = [];
   let upperCount = 0;
   let lowerCount = 0;
+  const upperRegions: ImageRegion[] = [];
+  const lowerRegions: ImageRegion[] = [];
+  const middleRegions: ImageRegion[] = [];
 
   for (const c of comps) {
     const band = bandByLine.get(c.lineIndex);
     if (!band) continue;
     middleExt.push(1);
+    if (middleRegions.length < 4) middleRegions.push(componentRegion(c, ctx.canvasWidth, ctx.canvasHeight, "Middle zone"));
     if (c.minY < band.top - 1) {
       upperExt.push((band.top - c.minY) / band.height);
       upperCount += 1;
+      if (upperRegions.length < 5) upperRegions.push(componentRegion(c, ctx.canvasWidth, ctx.canvasHeight, "Upper-zone extension"));
     }
     if (c.maxY > band.bottom + 1) {
       lowerExt.push((c.maxY - band.bottom) / band.height);
       lowerCount += 1;
+      if (lowerRegions.length < 5) lowerRegions.push(componentRegion(c, ctx.canvasWidth, ctx.canvasHeight, "Lower-zone extension"));
     }
   }
 
@@ -50,6 +57,7 @@ export function extractZones(ctx: PipelineContext): FeatureModuleResult<ZoneMeas
       consistency: Number((1 - Math.min(1, coefficientOfVariation(upperExt))).toFixed(2)),
       observationCount: upperCount,
       confidence: upperCount >= 5 ? confidence : confidence * 0.5,
+      sampleRegions: upperRegions,
     },
     {
       zone: "middle",
@@ -58,6 +66,7 @@ export function extractZones(ctx: PipelineContext): FeatureModuleResult<ZoneMeas
       consistency: Number((1 - Math.min(1, coefficientOfVariation(comps.map((c) => c.maxY - c.minY)))).toFixed(2)),
       observationCount: comps.length,
       confidence,
+      sampleRegions: middleRegions,
     },
     {
       zone: "lower",
@@ -66,6 +75,7 @@ export function extractZones(ctx: PipelineContext): FeatureModuleResult<ZoneMeas
       consistency: Number((1 - Math.min(1, coefficientOfVariation(lowerExt))).toFixed(2)),
       observationCount: lowerCount,
       confidence: lowerCount >= 5 ? confidence : confidence * 0.5,
+      sampleRegions: lowerRegions,
     },
   ];
 
@@ -81,6 +91,7 @@ export function extractZones(ctx: PipelineContext): FeatureModuleResult<ZoneMeas
       confidence,
       source: "automatic",
       sampleCount: comps.length,
+      regions: [...upperRegions.slice(0, 3), ...lowerRegions.slice(0, 3)],
     },
   };
 }

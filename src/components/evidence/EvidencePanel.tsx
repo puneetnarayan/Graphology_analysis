@@ -5,6 +5,8 @@ import { useWorkflow } from "@/state/workflowStore";
 import { Card, CardTitle, CardSubtitle } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
+import { RuleChip } from "@/components/ui/RuleChip";
+import type { ImageRegion } from "@/types";
 
 export function EvidencePanel() {
   const ctx = useWorkflow();
@@ -31,13 +33,27 @@ export function EvidencePanel() {
 
   const filteredEvidence = filter === "all" ? report.evidence : report.evidence.filter((e) => e.featureKey === filter);
   const highlighted = report.evidence.find((e) => e.id === ctx.highlightedRegionEvidenceId);
+  const highlightedRuleEvidence = ctx.highlightedRuleId
+    ? report.evidence.filter((e) => e.ruleId === ctx.highlightedRuleId)
+    : [];
+
+  let regionsToShow: ImageRegion[] = [];
+  let visualCaption = "Click a table row or a rule to highlight its handwriting region.";
+  if (ctx.highlightedRuleId) {
+    regionsToShow = highlightedRuleEvidence.flatMap((e) => e.regions);
+    visualCaption = `Highlighting all regions used by ${ctx.highlightedRuleId}`;
+  } else if (highlighted) {
+    regionsToShow = highlighted.regions;
+    visualCaption = `Highlighting evidence ${highlighted.id}`;
+  }
 
   return (
     <div className="flex flex-col gap-6">
       <div>
         <h2 className="text-xl font-semibold text-text-strong">Evidence &amp; Rules</h2>
         <p className="text-sm text-text-muted mt-1">
-          Every conclusion is traceable: click a row to see exactly which portion of the handwriting produced it.
+          Every conclusion is traceable: click an evidence row, a rule ID chip, or an entry in Rule Activations to see
+          exactly which portion of the handwriting produced it.
         </p>
       </div>
 
@@ -69,7 +85,9 @@ export function EvidencePanel() {
                     <td className="py-2 px-2 capitalize">{e.featureKey}</td>
                     <td className="py-2 px-2 text-text-body">{e.measurement}</td>
                     <td className="py-2 px-2 text-right">{Math.round(e.confidence * 100)}%</td>
-                    <td className="py-2 px-2 font-mono">{e.ruleId}</td>
+                    <td className="py-2 px-2">
+                      <RuleChip ruleId={e.ruleId} />
+                    </td>
                     <td className="py-2 px-2 text-right">{e.ruleContribution.toFixed(2)}</td>
                     <td className="py-2 px-2 text-text-muted max-w-[220px] truncate" title={e.interpretation}>
                       {e.interpretation}
@@ -105,18 +123,16 @@ export function EvidencePanel() {
 
           <Card>
             <CardTitle>Visual Evidence</CardTitle>
-            <CardSubtitle>
-              {highlighted ? `Highlighting evidence ${highlighted.id}` : "Click a table row to highlight its handwriting region."}
-            </CardSubtitle>
+            <CardSubtitle>{visualCaption}</CardSubtitle>
             <div className="relative mt-3">
               {ctx.previewDataUrl && (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img src={ctx.previewDataUrl} alt="" className="w-full rounded-lg border border-border-soft" />
               )}
-              {highlighted?.regions.map((r, i) => (
+              {regionsToShow.map((r, i) => (
                 <div
                   key={i}
-                  className="absolute border-2 border-primary bg-primary/15 rounded-sm pointer-events-none"
+                  className="absolute border-2 border-gray-400 bg-gray-400/30 rounded-sm pointer-events-none"
                   style={{
                     left: `${r.x * 100}%`,
                     top: `${r.y * 100}%`,
@@ -126,10 +142,22 @@ export function EvidencePanel() {
                 />
               ))}
             </div>
-            {highlighted && (
+            {highlighted && !ctx.highlightedRuleId && (
               <div className="mt-3 text-xs">
                 <Badge tone="primary">{highlighted.ruleId}</Badge>
                 <p className="mt-2 text-text-body">{highlighted.interpretation}</p>
+              </div>
+            )}
+            {ctx.highlightedRuleId && highlightedRuleEvidence.length > 0 && (
+              <div className="mt-3 text-xs flex flex-col gap-1.5">
+                <Badge tone="primary">
+                  {ctx.highlightedRuleId} &middot; {regionsToShow.length} region{regionsToShow.length === 1 ? "" : "s"}
+                </Badge>
+                {highlightedRuleEvidence.map((e) => (
+                  <p key={e.id} className="text-text-body">
+                    {e.id}: {e.interpretation}
+                  </p>
+                ))}
               </div>
             )}
           </Card>
@@ -140,7 +168,13 @@ export function EvidencePanel() {
         <CardTitle>Rule Activations ({report.ruleActivations.length})</CardTitle>
         <div className="mt-3 flex flex-col gap-2 max-h-96 overflow-y-auto scrollbar-thin">
           {report.ruleActivations.map((r) => (
-            <div key={r.ruleId} className="rounded-xl bg-surface-alt px-4 py-3 text-xs">
+            <button
+              key={r.ruleId}
+              onClick={() => ctx.setHighlightedRule(ctx.highlightedRuleId === r.ruleId ? null : r.ruleId)}
+              className={`text-left rounded-xl px-4 py-3 text-xs transition-colors ${
+                ctx.highlightedRuleId === r.ruleId ? "bg-primary-soft" : "bg-surface-alt hover:bg-primary-softer"
+              }`}
+            >
               <div className="flex items-center justify-between flex-wrap gap-1">
                 <span className="font-mono font-semibold text-primary-dark">{r.ruleId}</span>
                 <span className="text-text-muted">
@@ -151,7 +185,7 @@ export function EvidencePanel() {
               </div>
               <p className="mt-1 text-text-body">{r.description}</p>
               <p className="mt-1 text-text-muted">{r.explanation}</p>
-            </div>
+            </button>
           ))}
         </div>
       </Card>

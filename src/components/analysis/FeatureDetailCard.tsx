@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Card, CardTitle, CardSubtitle } from "@/components/ui/Card";
 import { Badge, ConfidenceBadge, ReliabilityBadge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
+import { RuleChip } from "@/components/ui/RuleChip";
 import { FEATURE_TO_RULE_CATEGORY, formatMeasurementValue, humanizeMeasurementKey } from "@/config/featureCategoryMap";
 import { OVERRIDE_OPTIONS } from "@/config/overrideOptions";
 import { useWorkflow } from "@/state/workflowStore";
@@ -143,7 +144,7 @@ export function FeatureDetailCard({
             {relatedRules.map((r) => (
               <div key={r.ruleId} className="rounded-lg bg-surface-alt px-3 py-2 text-xs">
                 <div className="flex items-center justify-between gap-2">
-                  <span className="font-mono font-semibold text-primary-dark">{r.ruleId}</span>
+                  <RuleChip ruleId={r.ruleId} />
                   <span className="text-text-muted">Contribution {r.effectiveWeight.toFixed(2)}</span>
                 </div>
                 <p className="mt-1 text-text-body">{r.description}</p>

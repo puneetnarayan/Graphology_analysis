@@ -1,7 +1,18 @@
 import { laplacianVariance, noiseEstimate } from "@/utils/imageMetrics";
 import { clamp, coefficientOfVariation } from "@/utils/stats";
 import type { FeatureModuleResult, LegibilityMeasurement, RhythmMeasurement } from "@/types";
+import { componentRegion } from "./common";
 import { featureReadability, type PipelineContext } from "./pipelineContext";
+
+/** Spreads representative samples across the page rather than clustering at the start. */
+function spreadSampleRegions(ctx: PipelineContext, limit = 5) {
+  const comps = ctx.plausibleComponents;
+  if (comps.length === 0) return [];
+  const step = Math.max(1, Math.floor(comps.length / limit));
+  const picked = [];
+  for (let i = 0; i < comps.length && picked.length < limit; i += step) picked.push(comps[i]);
+  return picked.map((c) => componentRegion(c, ctx.canvasWidth, ctx.canvasHeight, "Sampled component"));
+}
 
 export function extractLegibility(ctx: PipelineContext): FeatureModuleResult<LegibilityMeasurement> {
   const key = "legibility";
@@ -36,7 +47,14 @@ export function extractLegibility(ctx: PipelineContext): FeatureModuleResult<Leg
     reliability: "conditionally_reliable",
     available: true,
     measurement,
-    observation: { id: "obs-legibility", value: measurement, confidence, source: "automatic", sampleCount: comps.length },
+    observation: {
+      id: "obs-legibility",
+      value: measurement,
+      confidence,
+      source: "automatic",
+      sampleCount: comps.length,
+      regions: spreadSampleRegions(ctx),
+    },
   };
 }
 
@@ -77,6 +95,13 @@ export function extractRhythm(ctx: PipelineContext): FeatureModuleResult<RhythmM
     reliability: "experimental",
     available: true,
     measurement,
-    observation: { id: "obs-rhythm", value: measurement, confidence, source: "automatic", sampleCount: comps.length },
+    observation: {
+      id: "obs-rhythm",
+      value: measurement,
+      confidence,
+      source: "automatic",
+      sampleCount: comps.length,
+      regions: spreadSampleRegions(ctx),
+    },
   };
 }

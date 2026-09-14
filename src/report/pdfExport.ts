@@ -1,112 +1,215 @@
-import { jsPDF } from "jspdf";
+import { CONTENT_W, COLORS, PdfReportBuilder } from "./pdfBuilder";
 import type { AnalysisReport } from "@/types";
 
-const MARGIN = 15;
-const PAGE_WIDTH = 210;
-const CONTENT_WIDTH = PAGE_WIDTH - MARGIN * 2;
-
-export function exportReportToPdf(report: AnalysisReport, previewDataUrl: string | null): void {
-  const doc = new jsPDF({ unit: "mm", format: "a4" });
-  let y = MARGIN;
-
-  const ensureSpace = (needed: number) => {
-    if (y + needed > 285) {
-      doc.addPage();
-      y = MARGIN;
-    }
-  };
-
-  const heading = (text: string) => {
-    ensureSpace(12);
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(13);
-    doc.setTextColor(45, 40, 70);
-    doc.text(text, MARGIN, y);
-    y += 7;
-    doc.setDrawColor(230, 225, 245);
-    doc.line(MARGIN, y - 3, PAGE_WIDTH - MARGIN, y - 3);
-  };
-
-  const body = (text: string, size = 10) => {
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(size);
-    doc.setTextColor(60, 55, 80);
-    const wrapped = doc.splitTextToSize(text, CONTENT_WIDTH);
-    for (const line of wrapped) {
-      ensureSpace(6);
-      doc.text(line, MARGIN, y);
-      y += 5.2;
-    }
-  };
+function drawCover(b: PdfReportBuilder, report: AnalysisReport, previewDataUrl: string | null): void {
+  const doc = b.doc;
+  b.y = 30;
 
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(20);
-  doc.setTextColor(141, 127, 214);
-  doc.text("Graphology Analysis Report", MARGIN, y);
-  y += 9;
-  body(`Generated ${new Date(report.generatedAt).toLocaleString()} · Engine v${report.engineVersion} · Rules v${report.ruleLibraryVersion}`, 9);
-  y += 3;
+  doc.setFontSize(24);
+  doc.setTextColor(COLORS.accentDark[0], COLORS.accentDark[1], COLORS.accentDark[2]);
+  doc.text("Graphology Analysis Report", 18, b.y);
+  b.y += 9;
+
+  doc.setDrawColor(COLORS.accent[0], COLORS.accent[1], COLORS.accent[2]);
+  doc.setLineWidth(1.2);
+  doc.line(18, b.y, 18 + 28, b.y);
+  b.y += 10;
+
+  b.paragraph(`Sample: ${report.sampleMetadata.filename} (${report.sampleMetadata.width}×${report.sampleMetadata.height}px)`, {
+    size: 10.5,
+    color: COLORS.textBody,
+  });
+  b.paragraph(
+    `Generated ${new Date(report.generatedAt).toLocaleString()} · Engine v${report.engineVersion} · Rules v${report.ruleLibraryVersion}`,
+    { size: 9, color: COLORS.textMuted },
+  );
+  b.spacer(4);
 
   if (previewDataUrl) {
-    try {
-      const imgProps = doc.getImageProperties(previewDataUrl);
-      const w = CONTENT_WIDTH * 0.7;
-      const h = (imgProps.height / imgProps.width) * w;
-      ensureSpace(h + 5);
-      doc.addImage(previewDataUrl, "PNG", MARGIN, y, w, Math.min(h, 90));
-      y += Math.min(h, 90) + 6;
-    } catch {
-      // image embedding is best-effort; skip silently if it fails
-    }
+    b.image(previewDataUrl, CONTENT_W * 0.72, 82);
   }
 
-  heading("Summary");
-  body(
-    `Sample: ${report.sampleMetadata.filename} (${report.sampleMetadata.width}×${report.sampleMetadata.height}px)\n` +
-      `Scan readability: ${report.scanQuality.overallScore}% (${report.scanQuality.overallClass})\n` +
-      `Overall analysis confidence: ${report.overallConfidence}%\n` +
-      `Lines: ${report.linesDetected}  Words: ${report.wordsDetected}  Components: ${report.lettersDetected}`,
-  );
-  y += 2;
-
-  heading("Executive Profile");
-  for (const t of report.traitScores.filter((t) => t.available)) {
-    body(`${t.label}: ${t.score}/100 (confidence ${t.confidence}%)`, 10.5);
-    body(t.synthesisText, 9);
-    y += 1;
-  }
-
-  if (report.contradictions.length) {
-    heading("Contradictions & Nuances");
-    for (const c of report.contradictions) {
-      body(`${c.description}: ${c.resolutionText}`, 9.5);
-    }
-  }
-
-  heading("Observed Handwriting Characteristics");
-  for (const f of Object.values(report.features)) {
-    body(`${f.label}: ${f.available ? "Available" : `Unavailable — ${f.unavailableReason}`}`, 9.5);
-  }
-
-  heading("Handwriting Evidence (Rules & Contributions)");
-  for (const e of report.evidence.slice(0, 60)) {
-    body(`${e.id}  ${e.featureKey} — ${e.measurement}  (${(e.confidence * 100).toFixed(0)}% conf, rule ${e.ruleId}, contribution ${e.ruleContribution.toFixed(2)})`, 8.5);
-  }
-  if (report.evidence.length > 60) {
-    body(`…and ${report.evidence.length - 60} more evidence entries (see JSON export for the complete list).`, 8.5);
-  }
-
-  heading("Limitations");
-  body(
-    "Scan quality varies by region; low-confidence regions are flagged rather than silently discarded. Pressure is an image-derived proxy, not a physical pressure measurement. Automated letter/signature identification may be uncertain.",
-  );
-  if (report.userOverrideCount > 0) body(`User overrides applied: ${report.userOverrideCount}`);
-
-  heading("Disclaimer");
-  body(
-    "This report presents graphological interpretations based on traditional graphology literature and a deterministic rule engine. It is not a clinical psychological diagnosis and has not been scientifically validated as a personality assessment method. It should not be used for employment, credit, insurance, legal, medical or psychiatric decisions.",
-    9,
+  b.statGrid(
+    [
+      { label: "Scan Readability", value: `${report.scanQuality.overallScore}%` },
+      { label: "Analysis Confidence", value: `${report.overallConfidence}%` },
+      { label: "Lines / Words / Components", value: `${report.linesDetected} / ${report.wordsDetected} / ${report.lettersDetected}` },
+      { label: "Evidence Regions", value: String(report.evidence.length) },
+      { label: "Rules Triggered", value: String(report.ruleActivations.length) },
+      { label: "User Overrides", value: String(report.userOverrideCount) },
+    ],
+    3,
   );
 
-  doc.save(`graphology-report-${report.sampleMetadata.filename.replace(/\.[^.]+$/, "")}.pdf`);
+  b.spacer(2);
+  b.calloutBox(
+    "Your handwriting was analyzed locally in your browser and was not uploaded to a server or any external AI service.",
+    { bg: COLORS.successBg, textColor: [47, 107, 77], title: "🔒 Privacy" },
+  );
+}
+
+function drawExecutiveProfile(b: PdfReportBuilder, report: AnalysisReport): void {
+  b.startSection("profile", "Executive Profile");
+  b.paragraph(
+    "A high-level profile based only on aggregated evidence from this sample. This is an interpretive graphological profile, not a clinical psychological assessment.",
+    { size: 9.5, color: COLORS.textMuted },
+  );
+  b.spacer(3);
+
+  const available = report.traitScores.filter((t) => t.available);
+  b.cardGrid(
+    available.map((t) => ({ title: t.label, value: `${t.score}/100`, body: t.synthesisText })),
+    2,
+  );
+
+  const unavailableCount = report.traitScores.length - available.length;
+  if (unavailableCount > 0) {
+    b.spacer(2);
+    b.paragraph(
+      `${unavailableCount} additional dimension${unavailableCount === 1 ? "" : "s"} could not be characterized from this sample due to insufficient evidence.`,
+      { size: 8.5, color: COLORS.textMuted, italic: true },
+    );
+  }
+}
+
+function drawContradictions(b: PdfReportBuilder, report: AnalysisReport): void {
+  if (report.contradictions.length === 0) return;
+  b.startSection("contradictions", "Contradictions & Nuances");
+  b.paragraph("Competing indicators the synthesis reconciled rather than averaging away.", {
+    size: 9.5,
+    color: COLORS.textMuted,
+  });
+  b.spacer(3);
+  for (const c of report.contradictions) {
+    b.calloutBox(c.resolutionText, { bg: COLORS.blushBg, textColor: COLORS.blush, title: c.description });
+  }
+}
+
+function drawScanQuality(b: PdfReportBuilder, report: AnalysisReport): void {
+  b.startSection("quality", "Scan Quality");
+  const q = report.scanQuality;
+  b.statGrid(
+    [
+      { label: "Overall Readability", value: `${q.overallScore}%` },
+      { label: "Classification", value: q.overallClass },
+      { label: "Grid", value: `${q.gridRows} × ${q.gridCols} regions` },
+    ],
+    3,
+  );
+  b.spacer(3);
+  b.heading("Component Averages");
+  b.table(
+    ["Component", "Average Score"],
+    q.componentAverages.map((c) => [c.label, Math.round(c.score).toString()]),
+  );
+
+  b.heading("Feature Readiness");
+  b.table(
+    ["Feature", "Readability", "Readiness"],
+    q.featureReadiness.map((f) => [f.label, f.readability === null ? "Not detected" : `${f.readability}%`, f.readiness]),
+  );
+}
+
+function drawCharacteristics(b: PdfReportBuilder, report: AnalysisReport): void {
+  b.startSection("characteristics", "Observed Handwriting Characteristics");
+  b.paragraph("Detailed measurements for every feature module this engine attempted.", {
+    size: 9.5,
+    color: COLORS.textMuted,
+  });
+  b.spacer(2);
+  b.table(
+    ["Feature", "Status", "Detail"],
+    Object.values(report.features).map((f) => [
+      f.label,
+      f.available ? "Measured" : "Insufficient evidence",
+      f.available ? `Confidence ${Math.round((f.observation?.confidence ?? 0) * 100)}%` : (f.unavailableReason ?? ""),
+    ]),
+  );
+}
+
+function drawEvidenceAndRules(b: PdfReportBuilder, report: AnalysisReport): void {
+  b.startSection("evidence", "Evidence & Rules");
+  b.paragraph(
+    "Every graphology rule that fired on this sample, with the weighting that determined how much it contributed to trait scores.",
+    { size: 9.5, color: COLORS.textMuted },
+  );
+  b.spacer(2);
+  b.table(
+    ["Rule ID", "Category", "Description", "Eff. Weight"],
+    report.ruleActivations.map((r) => [r.ruleId, r.category, r.description, r.effectiveWeight.toFixed(2)]),
+    { columnStyles: { 0: { cellWidth: 32 }, 1: { cellWidth: 24 }, 3: { cellWidth: 20 } } },
+  );
+}
+
+function drawHandwritingPortions(b: PdfReportBuilder, report: AnalysisReport): void {
+  b.startSection("portions", "Handwriting Portions Used");
+  b.paragraph(
+    "Full traceability: which handwriting portions were actually used, at what confidence, and what they contributed.",
+    { size: 9.5, color: COLORS.textMuted },
+  );
+  b.spacer(2);
+  b.table(
+    ["ID", "Feature", "Measurement", "Conf.", "Rule", "Contrib.", "Interpretation"],
+    report.evidence.map((e) => [
+      e.id,
+      e.featureKey,
+      e.measurement,
+      `${Math.round(e.confidence * 100)}%`,
+      e.ruleId,
+      e.ruleContribution.toFixed(2),
+      e.interpretation,
+    ]),
+    {
+      styles: { fontSize: 6.8, cellPadding: 1.6 },
+      columnStyles: {
+        0: { cellWidth: 12 },
+        1: { cellWidth: 16 },
+        3: { cellWidth: 10 },
+        4: { cellWidth: 20 },
+        5: { cellWidth: 12 },
+        6: { cellWidth: 56 },
+      },
+    },
+  );
+}
+
+function drawLimitations(b: PdfReportBuilder, report: AnalysisReport): void {
+  b.startSection("limitations", "Limitations");
+  const items = [
+    "Scan quality varies by region; low-confidence regions reduce confidence rather than being silently discarded.",
+    "Pressure is an image-derived proxy, not a physical pen-pressure measurement.",
+    "Automated letter, signature and connection-style identification is heuristic and may be uncertain; use manual overrides where available.",
+    "Letter-connection, capital-letter and punctuation-specific detectors are not yet implemented in this release.",
+    "The letter-shape distribution is a letter-agnostic geometric census (loop presence, zone extension), not per-letter OCR identification.",
+  ];
+  if (report.userOverrideCount > 0) items.push(`${report.userOverrideCount} observation(s) were manually overridden by the user.`);
+  b.bulletList(items);
+}
+
+function drawDisclaimer(b: PdfReportBuilder): void {
+  b.startSection("disclaimer", "Disclaimer");
+  b.calloutBox(
+    "This report presents graphological interpretations based on traditional graphology literature and a deterministic rule engine. Graphology's ability to infer personality has not been established as a reliable clinical psychological diagnostic method. This is not a clinical psychological diagnosis and should not be used for employment, credit, insurance, legal, medical or psychiatric decisions.",
+    { bg: COLORS.surfaceAlt, textColor: COLORS.textBody },
+  );
+}
+
+export function exportReportToPdf(report: AnalysisReport, previewDataUrl: string | null): void {
+  const b = new PdfReportBuilder("Graphology Analysis Report");
+
+  drawCover(b, report, previewDataUrl);
+  b.reserveTocPage();
+
+  drawExecutiveProfile(b, report);
+  drawContradictions(b, report);
+  drawScanQuality(b, report);
+  drawCharacteristics(b, report);
+  drawEvidenceAndRules(b, report);
+  drawHandwritingPortions(b, report);
+  drawLimitations(b, report);
+  drawDisclaimer(b);
+
+  b.finalize();
+  b.save(`graphology-report-${report.sampleMetadata.filename.replace(/\.[^.]+$/, "")}.pdf`);
 }

@@ -58,6 +58,7 @@ interface WorkflowState {
   overrides: Record<string, ManualOverride>;
   error: string | null;
   highlightedRegionEvidenceId: string | null;
+  highlightedRuleId: string | null;
   liveUpdateDelayMs: number;
   confidenceTrend: ConfidenceTrend | null;
 }
@@ -75,6 +76,8 @@ interface WorkflowActions {
   setOverride: (featureKey: string, value: string) => void;
   clearOverride: (featureKey: string) => void;
   setHighlightedEvidence: (id: string | null) => void;
+  setHighlightedRule: (ruleId: string | null) => void;
+  goToRuleEvidence: (ruleId: string) => void;
   setLiveUpdateDelayMs: (ms: number) => void;
   reset: () => void;
 }
@@ -109,6 +112,7 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
   const [overrides, setOverrides] = useState<Record<string, ManualOverride>>({});
   const [error, setError] = useState<string | null>(null);
   const [highlightedRegionEvidenceId, setHighlightedRegionEvidenceId] = useState<string | null>(null);
+  const [highlightedRuleId, setHighlightedRuleId] = useState<string | null>(null);
   const [liveUpdateDelayMs, setLiveUpdateDelayMsState] = useState(DEFAULT_LIVE_UPDATE_DELAY_MS);
   const [confidenceTrend, setConfidenceTrend] = useState<ConfidenceTrend | null>(null);
 
@@ -345,6 +349,25 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  const setHighlightedEvidence = useCallback((id: string | null) => {
+    setHighlightedRuleId(null);
+    setHighlightedRegionEvidenceId(id);
+  }, []);
+
+  const setHighlightedRule = useCallback((ruleId: string | null) => {
+    setHighlightedRegionEvidenceId(null);
+    setHighlightedRuleId(ruleId);
+  }, []);
+
+  const goToRuleEvidence = useCallback(
+    (ruleId: string) => {
+      setHighlightedRegionEvidenceId(null);
+      setHighlightedRuleId(ruleId);
+      setActiveSection("evidence");
+    },
+    [],
+  );
+
   const setLiveUpdateDelayMs = useCallback((ms: number) => {
     const clamped = Math.min(MAX_LIVE_UPDATE_DELAY_MS, Math.max(MIN_LIVE_UPDATE_DELAY_MS, Math.round(ms)));
     setLiveUpdateDelayMsState(clamped);
@@ -368,6 +391,8 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
     lastConfidenceRef.current = null;
     setConfidenceTrend(null);
     setError(null);
+    setHighlightedRegionEvidenceId(null);
+    setHighlightedRuleId(null);
     setActiveSection("upload");
   }, [clearDebounceTimer, releaseMemory]);
 
@@ -392,6 +417,7 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
       overrides,
       error,
       highlightedRegionEvidenceId,
+      highlightedRuleId,
       liveUpdateDelayMs,
       confidenceTrend,
       setActiveSection,
@@ -405,7 +431,9 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
       acceptAndAnalyze,
       setOverride,
       clearOverride,
-      setHighlightedEvidence: setHighlightedRegionEvidenceId,
+      setHighlightedEvidence,
+      setHighlightedRule,
+      goToRuleEvidence,
       setLiveUpdateDelayMs,
       reset,
     }),
@@ -428,6 +456,7 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
       overrides,
       error,
       highlightedRegionEvidenceId,
+      highlightedRuleId,
       liveUpdateDelayMs,
       confidenceTrend,
       loadFile,
@@ -438,6 +467,9 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
       acceptAndAnalyze,
       setOverride,
       clearOverride,
+      setHighlightedEvidence,
+      setHighlightedRule,
+      goToRuleEvidence,
       setLiveUpdateDelayMs,
       reset,
     ],

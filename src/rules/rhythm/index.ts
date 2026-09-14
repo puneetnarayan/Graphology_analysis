@@ -19,7 +19,7 @@ export const rhythmRules: Rule[] = [
         sufficiencyMin: 10,
         sufficiencyFull: 40,
         measurementLabel: `Legibility score ${l.measurement.score}/100`,
-        regions: [],
+        regions: l.observation?.regions ?? [],
       };
     },
   }),
@@ -43,7 +43,7 @@ export const rhythmRules: Rule[] = [
         sufficiencyMin: 10,
         sufficiencyFull: 40,
         measurementLabel: `Legibility score ${l.measurement.score}/100`,
-        regions: [],
+        regions: l.observation?.regions ?? [],
       };
     },
   }),
@@ -68,7 +68,7 @@ export const rhythmRules: Rule[] = [
         sufficiencyMin: 10,
         sufficiencyFull: 40,
         measurementLabel: `Combined size/spacing variability ${combinedVariability.toFixed(2)}`,
-        regions: [],
+        regions: r.observation?.regions ?? [],
       };
     },
   }),
@@ -93,7 +93,7 @@ export const rhythmRules: Rule[] = [
         sufficiencyMin: 10,
         sufficiencyFull: 40,
         measurementLabel: `Combined size/spacing variability ${combinedVariability.toFixed(2)}`,
-        regions: [],
+        regions: r.observation?.regions ?? [],
       };
     },
   }),

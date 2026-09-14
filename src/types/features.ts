@@ -1,4 +1,4 @@
-import type { DetectorReliability, Observation } from "./core";
+import type { DetectorReliability, ImageRegion, Observation } from "./core";
 
 /** Discrete classification enums used across feature modules. */
 export type SlantClass =
@@ -75,6 +75,8 @@ export interface ZoneMeasurement {
   consistency: number;
   observationCount: number;
   confidence: number;
+  /** A handful of representative component regions for this specific zone, for evidence traceability. */
+  sampleRegions?: ImageRegion[];
 }
 
 export interface PressureProxyMeasurement {

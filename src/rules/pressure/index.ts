@@ -22,7 +22,7 @@ export const pressureRules: Rule[] = [
         sufficiencyMin: 10,
         sufficiencyFull: 40,
         measurementLabel: `Pressure proxy: ${p.measurement.estimated.replace("_", "-")}`,
-        regions: [],
+        regions: p.observation?.regions ?? [],
       };
     },
   }),
@@ -46,7 +46,7 @@ export const pressureRules: Rule[] = [
         sufficiencyMin: 10,
         sufficiencyFull: 40,
         measurementLabel: "Pressure proxy: light",
-        regions: [],
+        regions: p.observation?.regions ?? [],
       };
     },
   }),
@@ -67,7 +67,7 @@ export const pressureRules: Rule[] = [
         sufficiencyMin: 10,
         sufficiencyFull: 40,
         measurementLabel: `Stroke width consistency ${(p.measurement.strokeWidthConsistency * 100).toFixed(0)}%`,
-        regions: [],
+        regions: p.observation?.regions ?? [],
       };
     },
   }),

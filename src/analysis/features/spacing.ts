@@ -1,8 +1,26 @@
 import { SPACING_THRESHOLDS } from "@/config/thresholds";
 import { median } from "@/utils/stats";
-import type { FeatureModuleResult, SpacingClass, SpacingMeasurement } from "@/types";
+import type { FeatureModuleResult, ImageRegion, SpacingClass, SpacingMeasurement } from "@/types";
 import { medianCharWidth } from "./common";
 import { featureReadability, type PipelineContext } from "./pipelineContext";
+
+/** A handful of representative word bounding boxes, for evidence traceability. */
+function sampleWordRegions(ctx: PipelineContext, limit = 6): ImageRegion[] {
+  const regions: ImageRegion[] = [];
+  for (const lw of ctx.lineWordData) {
+    for (const w of lw.words) {
+      if (regions.length >= limit) return regions;
+      regions.push({
+        x: w.x0 / ctx.canvasWidth,
+        y: lw.line.y0 / ctx.canvasHeight,
+        width: (w.x1 - w.x0) / ctx.canvasWidth,
+        height: Math.max(1, lw.line.y1 - lw.line.y0) / ctx.canvasHeight,
+        label: `Line ${lw.line.index + 1} word`,
+      });
+    }
+  }
+  return regions;
+}
 
 function classifyRatio(ratio: number, narrow: number, moderate: number, wide: number): SpacingClass {
   if (ratio < narrow * 0.5) return "very_narrow";
@@ -82,6 +100,7 @@ export function extractSpacing(ctx: PipelineContext): FeatureModuleResult<Spacin
       confidence,
       source: "automatic",
       sampleCount: wordCount,
+      regions: sampleWordRegions(ctx),
     },
   };
 }

@@ -18,7 +18,7 @@ export const marginRules: Rule[] = [
         sufficiencyMin: 3,
         sufficiencyFull: 10,
         measurementLabel: `Left margin ${(m.measurement.leftRatio * 100).toFixed(0)}% of page width`,
-        regions: [],
+        regions: m.observation?.regions ?? [],
       };
     },
   }),
@@ -39,7 +39,7 @@ export const marginRules: Rule[] = [
         sufficiencyMin: 3,
         sufficiencyFull: 10,
         measurementLabel: `Left margin consistency ${(m.measurement.consistency * 100).toFixed(0)}%`,
-        regions: [],
+        regions: m.observation?.regions ?? [],
       };
     },
   }),

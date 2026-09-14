@@ -24,7 +24,7 @@ export const zoneRules: Rule[] = [
         sufficiencyMin: 5,
         sufficiencyFull: ZONE_THRESHOLDS.MIN_OBSERVATIONS,
         measurementLabel: `Upper-zone extension ${upper.relativeExtension}×, frequency ${(upper.frequency * 100).toFixed(0)}%`,
-        regions: [],
+        regions: upper.sampleRegions ?? [],
       };
     },
   }),
@@ -50,7 +50,7 @@ export const zoneRules: Rule[] = [
         sufficiencyMin: 5,
         sufficiencyFull: ZONE_THRESHOLDS.MIN_OBSERVATIONS,
         measurementLabel: `Lower-zone extension ${lower.relativeExtension}×, frequency ${(lower.frequency * 100).toFixed(0)}%`,
-        regions: [],
+        regions: lower.sampleRegions ?? [],
       };
     },
   }),

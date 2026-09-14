@@ -22,7 +22,7 @@ export const spacingRules: Rule[] = [
         sufficiencyMin: SPACING_THRESHOLDS.MIN_WORD_SAMPLE,
         sufficiencyFull: 60,
         measurementLabel: `Word spacing ${s.measurement.wordSpacingRatio}× median letter width (${s.measurement.wordClass})`,
-        regions: [],
+        regions: s.observation?.regions ?? [],
       };
     },
   }),
@@ -46,7 +46,7 @@ export const spacingRules: Rule[] = [
         sufficiencyMin: SPACING_THRESHOLDS.MIN_WORD_SAMPLE,
         sufficiencyFull: 60,
         measurementLabel: `Word spacing ${s.measurement.wordSpacingRatio}× median letter width (${s.measurement.wordClass})`,
-        regions: [],
+        regions: s.observation?.regions ?? [],
       };
     },
   }),
@@ -67,7 +67,7 @@ export const spacingRules: Rule[] = [
         sufficiencyMin: SPACING_THRESHOLDS.MIN_WORD_SAMPLE,
         sufficiencyFull: 60,
         measurementLabel: `Letter spacing ${s.measurement.letterSpacingRatio}× median letter width`,
-        regions: [],
+        regions: s.observation?.regions ?? [],
       };
     },
   }),
@@ -91,7 +91,7 @@ export const spacingRules: Rule[] = [
         sufficiencyMin: SPACING_THRESHOLDS.MIN_WORD_SAMPLE,
         sufficiencyFull: 60,
         measurementLabel: `Line spacing ${s.measurement.lineSpacingRatio}× middle-zone height`,
-        regions: [],
+        regions: s.observation?.regions ?? [],
       };
     },
   }),
