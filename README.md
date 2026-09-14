@@ -74,6 +74,8 @@ src/
   workers/        Web Worker entry point that runs the analysis pipeline off the main thread
   report/         Text/PDF export builders
   types/          Shared TypeScript types
+  components/formations/  Letter Formations reference library (see below) — independent feature
+  state/useFormations.ts  localStorage-backed hook behind that library
 ```
 
 Heavy computation (quality assessment, segmentation, feature extraction, rule
@@ -170,6 +172,35 @@ handwriting; its accuracy on genuinely handwritten samples varies a lot and is g
 lower than on print. Treat low-confidence characters (flagged in red/amber) with real
 skepticism rather than as ground truth.
 
+## Letter Formations (personal reference library)
+
+The **Letter Formations** tab is a personal, browser-local reference library for the kind of
+graphology "cheat sheet" example you might collect by hand — a picture of a specific letter
+formation, paired with the trait it's said to indicate. It has two sub-tabs:
+
+- **Add Formation**: upload or drag-and-drop an image, then fill in a **category** (a broad
+  grouping, e.g. "Letter connections"), a **sub-category** (a narrower grouping within it,
+  e.g. "Garland"), a **detail** describing the formation (e.g. "Wavy line — no angles, just
+  curves"), and the **trait** it's said to indicate (e.g. "Diplomatic"). After each add, the
+  form stays open with the category/sub-category retained so you can add several related
+  rows one after another without re-entering them, and each row you add in the session
+  appears in a running list right below the form.
+- **Formation Library**: the same add form in a compact, table-row layout, plus a table of
+  every formation you've saved — image thumbnail, category, sub-category, detail, trait, and
+  a remove action.
+
+**Where the data lives.** Entries (including the images, downscaled to keep storage light)
+are saved to this browser's `localStorage`, not to any server — consistent with the rest of
+the app's no-backend architecture, but unlike the analyzed handwriting sample, this library
+is *intentionally* persisted across sessions/reloads so it can be built up over time. Clearing
+your browser's site data for this app removes it.
+
+**Not wired into the rule engine.** This is a reference library you curate, not an input to
+the automated analysis — entries here do not feed the graphology rule engine, trait scoring,
+or any Analysis tab. It's deliberately kept that way so the deterministic rule engine's
+evidence chain isn't affected by informal, unvalidated entries. Using it to manually cross-
+check or extend the app's rule library is a natural next step, not yet built.
+
 ## Privacy / no-storage architecture
 
 - Handwriting images are loaded as in-memory `File`/`Canvas`/`ImageData` objects and
@@ -181,8 +212,11 @@ skepticism rather than as ground truth.
   No handwriting pixel data is ever part of any network request.
 - The JSON report export deliberately excludes raw image bytes — only normalized
   region coordinates (0–1 fractions) and measurements are included.
-- Closing or refreshing the tab releases all in-memory image data; nothing persists
-  across sessions (no localStorage/IndexedDB image caching).
+- Closing or refreshing the tab releases all in-memory image data for the analyzed
+  handwriting sample; nothing about that sample persists across sessions. The one
+  exception is the separate, opt-in **Letter Formations** library (see below), which
+  intentionally persists in this browser's localStorage since it's a personal reference
+  collection you build up over time, not analysis input.
 
 ## Rule engine
 

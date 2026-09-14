@@ -19,6 +19,8 @@ function isSectionEnabled(section: PrimarySection, ctx: ReturnType<typeof useWor
     case "evidence":
     case "report":
       return !!ctx.analysisReport;
+    case "formations":
+      return true;
     default:
       return false;
   }
@@ -33,6 +35,7 @@ const ICONS: Record<PrimarySection, string> = {
   profile: "◉",
   evidence: "⊕",
   report: "≣",
+  formations: "📚",
 };
 
 export function Sidebar() {

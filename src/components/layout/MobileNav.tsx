@@ -6,6 +6,7 @@ import { PRIMARY_SECTIONS, type PrimarySection } from "@/state/navigation";
 function isSectionEnabled(section: PrimarySection, ctx: ReturnType<typeof useWorkflow>): boolean {
   switch (section) {
     case "upload":
+    case "formations":
       return true;
     case "prepare":
     case "quality":

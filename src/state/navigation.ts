@@ -26,7 +26,20 @@ export type PrimarySection =
   | "ocr"
   | "profile"
   | "evidence"
-  | "report";
+  | "report"
+  | "formations";
+
+export type FormationsSubTab = "add" | "table";
+
+export interface FormationsSubTabDef {
+  key: FormationsSubTab;
+  label: string;
+}
+
+export const FORMATIONS_SUB_TABS: FormationsSubTabDef[] = [
+  { key: "add", label: "Add Formation" },
+  { key: "table", label: "Formation Library" },
+];
 
 export type OcrSubTab = "text" | "letters" | "confidence";
 
@@ -77,4 +90,5 @@ export const PRIMARY_SECTIONS: { key: PrimarySection; label: string }[] = [
   { key: "profile", label: "Personality Profile" },
   { key: "evidence", label: "Evidence & Rules" },
   { key: "report", label: "Report" },
+  { key: "formations", label: "Letter Formations" },
 ];

@@ -9,6 +9,7 @@ import { PreparationPanel } from "@/components/prep/PreparationPanel";
 import { QualityPanel } from "@/components/quality/QualityPanel";
 import { AnalysisPanel } from "@/components/analysis/AnalysisPanel";
 import { OcrPanel } from "@/components/ocr/OcrPanel";
+import { FormationsPanel } from "@/components/formations/FormationsPanel";
 import { ProfilePanel } from "@/components/evidence/ProfilePanel";
 import { EvidencePanel } from "@/components/evidence/EvidencePanel";
 import { ReportPanel } from "@/components/report/ReportPanel";
@@ -36,6 +37,7 @@ export function AppShell() {
             {ctx.activeSection === "profile" && <ProfilePanel />}
             {ctx.activeSection === "evidence" && <EvidencePanel />}
             {ctx.activeSection === "report" && <ReportPanel />}
+            {ctx.activeSection === "formations" && <FormationsPanel />}
           </div>
         </main>
       </div>
