@@ -1,20 +1,36 @@
 import { BookPdfBuilder, BOOK_PAGE_W, BOOK_CONTENT_W } from "./bookPdfBuilder";
 import { HANDWRITING_PARAMETERS, FORMATION_TAG_LABELS, type FormationEntry } from "@/types";
 
+/** The fields a chapter can be built from. Multiple may be selected at once — a chapter then covers the combination. */
 export type BookGroupBy = "parameter" | "trait" | "character";
 export type BookEntryFilter = "complete" | "all" | "imageOnly";
+
+/** Fixed priority order used both for compound chapter titles and for sorting. */
+const DIM_ORDER: BookGroupBy[] = ["parameter", "character", "trait"];
 
 export interface BookOptions {
   title: string;
   author: string;
-  groupBy: BookGroupBy;
+  edition: string;
+  year: string;
+  /** At least one dimension, in any combination — a chapter is built per unique combination of the selected fields. */
+  chapterDims: BookGroupBy[];
   filter: BookEntryFilter;
+  /** Data URLs for optional front/back cover art, embedded full-bleed as the first/last page if present. */
+  coverFrontDataUrl?: string | null;
+  coverBackDataUrl?: string | null;
 }
 
 const UNSPECIFIED_LABEL: Record<BookGroupBy, string> = {
   parameter: "(No parameter set)",
   trait: "(No trait set)",
   character: "(No character set)",
+};
+
+const DIM_CAPTION_LABEL: Record<"parameter" | "character" | "subCategory", string> = {
+  parameter: "Parameter",
+  character: "Character",
+  subCategory: "Sub-category",
 };
 
 export function isCompleteFormation(f: FormationEntry): boolean {
@@ -33,42 +49,77 @@ export function filterFormationsForBook(formations: FormationEntry[], filter: Bo
   }
 }
 
-function groupKey(f: FormationEntry, groupBy: BookGroupBy): string {
-  if (groupBy === "parameter") return f.parameter.trim() || UNSPECIFIED_LABEL.parameter;
-  if (groupBy === "trait") return f.trait.trim() || UNSPECIFIED_LABEL.trait;
-  return f.character?.trim() || UNSPECIFIED_LABEL.character;
+function dimValue(f: FormationEntry, dim: BookGroupBy): string {
+  if (dim === "parameter") return f.parameter.trim();
+  if (dim === "character") return f.character?.trim() ?? "";
+  return f.trait.trim();
 }
 
-function sortChapterKeys(keys: string[], groupBy: BookGroupBy): string[] {
-  const unspecified = UNSPECIFIED_LABEL[groupBy];
-  if (groupBy === "parameter") {
-    const order = HANDWRITING_PARAMETERS as readonly string[];
-    return [...keys].sort((a, b) => {
-      const ia = order.indexOf(a);
-      const ib = order.indexOf(b);
-      if (ia !== -1 && ib !== -1) return ia - ib;
-      if (ia !== -1) return -1;
-      if (ib !== -1) return 1;
-      if (a === unspecified) return 1;
-      if (b === unspecified) return -1;
-      return a.localeCompare(b);
-    });
+interface ChapterKey {
+  label: string;
+  /** Raw (possibly blank) value per active chapter dimension, for sorting. */
+  values: Partial<Record<BookGroupBy, string>>;
+}
+
+function buildChapterKey(f: FormationEntry, dims: BookGroupBy[]): ChapterKey {
+  const active = DIM_ORDER.filter((d) => dims.includes(d));
+  const values: Partial<Record<BookGroupBy, string>> = {};
+  const parts: string[] = [];
+  for (const dim of active) {
+    const raw = dimValue(f, dim);
+    values[dim] = raw;
+    parts.push(raw || UNSPECIFIED_LABEL[dim]);
   }
-  return [...keys].sort((a, b) => {
-    if (a === unspecified) return 1;
-    if (b === unspecified) return -1;
-    return a.localeCompare(b, undefined, { sensitivity: "base" });
-  });
+  return { label: parts.join("  ·  ") || "All Formations", values };
+}
+
+function compareChapterKeys(a: ChapterKey, b: ChapterKey, dims: BookGroupBy[]): number {
+  const active = DIM_ORDER.filter((d) => dims.includes(d));
+  for (const dim of active) {
+    const av = a.values[dim] ?? "";
+    const bv = b.values[dim] ?? "";
+    if (dim === "parameter") {
+      const order = HANDWRITING_PARAMETERS as readonly string[];
+      const ia = av ? order.indexOf(av) : -1;
+      const ib = bv ? order.indexOf(bv) : -1;
+      if (ia !== -1 || ib !== -1) {
+        if (ia !== -1 && ib !== -1 && ia !== ib) return ia - ib;
+        if (ia !== -1 && ib === -1) return -1;
+        if (ia === -1 && ib !== -1) return 1;
+      }
+    }
+    if (!av && bv) return 1;
+    if (av && !bv) return -1;
+    const c = av.localeCompare(bv, undefined, { sensitivity: "base" });
+    if (c !== 0) return c;
+  }
+  return 0;
+}
+
+/** Sub-heading fields: whichever of Parameter/Character/Sub-category aren't already the chapter's own dimension(s). */
+function subheadingDims(chapterDims: BookGroupBy[]): ("parameter" | "character" | "subCategory")[] {
+  const dims: ("parameter" | "character" | "subCategory")[] = [];
+  if (!chapterDims.includes("parameter")) dims.push("parameter");
+  if (!chapterDims.includes("character")) dims.push("character");
+  dims.push("subCategory");
+  return dims;
+}
+
+function subheadingValue(f: FormationEntry, dim: "parameter" | "character" | "subCategory"): string {
+  if (dim === "parameter") return f.parameter.trim();
+  if (dim === "character") return f.character?.trim() ?? "";
+  return f.subCategory.trim();
 }
 
 function drawTitlePage(b: BookPdfBuilder, options: BookOptions): void {
+  b.claimPage();
   const doc = b.doc;
   const cx = BOOK_PAGE_W / 2;
   doc.setFont("times", "bold");
   doc.setFontSize(25);
   doc.setTextColor(30, 27, 24);
   const titleLines = doc.splitTextToSize(options.title || "Letter Formations", BOOK_CONTENT_W) as string[];
-  let ty = 82;
+  let ty = 78;
   for (const line of titleLines) {
     const w = doc.getTextWidth(line);
     doc.text(line, cx - w / 2, ty);
@@ -85,16 +136,27 @@ function drawTitlePage(b: BookPdfBuilder, options: BookOptions): void {
     doc.setTextColor(128, 120, 112);
     const w = doc.getTextWidth(options.author.trim());
     doc.text(options.author.trim(), cx - w / 2, ty);
+    ty += 9;
   }
+  if (options.edition.trim()) {
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(9.5);
+    doc.setTextColor(128, 120, 112);
+    const label = options.edition.trim();
+    const w = doc.getTextWidth(label);
+    doc.text(label, cx - w / 2, ty);
+  }
+  b.markChromeFree();
 }
 
 function drawCopyrightPage(b: BookPdfBuilder, options: BookOptions): void {
   b.addPage();
   b.y = 148;
-  const year = new Date().getFullYear();
+  const year = options.year.trim() || String(new Date().getFullYear());
   const author = options.author.trim();
   b.paragraph(options.title || "Letter Formations", { size: 10, bold: true, font: "helvetica" });
   if (author) b.paragraph(`By ${author}`, { size: 9, color: [128, 120, 112] });
+  if (options.edition.trim()) b.paragraph(options.edition.trim(), { size: 8.5, color: [128, 120, 112], italic: true });
   b.spacer(4);
   b.paragraph(`Copyright © ${year}${author ? ` ${author}` : ""}. All rights reserved.`, { size: 8.5 });
   b.paragraph(
@@ -108,34 +170,70 @@ function drawCopyrightPage(b: BookPdfBuilder, options: BookOptions): void {
     "Compiled from the Graphology Analyzer app's Letter Formations library. The formations, details, and trait interpretations recorded here are the author's own handwriting-analysis notes and are presented for informational and educational purposes.",
     { size: 7.5, color: [128, 120, 112] },
   );
+  b.markChromeFree();
 }
 
+/**
+ * One formation per page, image and text side by side: image on the left
+ * (never upscaled past its native resolution, so it stays sharp), Tag/Trait/
+ * Detail in a column on the right. Both columns are measured first so the
+ * page break (if any) happens before drawing, not mid-entry.
+ */
 function drawEntry(b: BookPdfBuilder, f: FormationEntry): void {
-  b.ensureSpace(14);
-  const captionParts: string[] = [];
-  if (f.parameter.trim()) captionParts.push(`Parameter: ${f.parameter.trim()}`);
-  if (f.character?.trim()) captionParts.push(`Character: "${f.character.trim()}"`);
-  if (f.subCategory.trim()) captionParts.push(`Sub-category: ${f.subCategory.trim()}`);
-  if (f.tag) captionParts.push(`Tag: ${FORMATION_TAG_LABELS[f.tag]}`);
-  if (captionParts.length) {
-    b.paragraph(captionParts.join("   ·   "), { size: 8, bold: true, color: [128, 120, 112], font: "helvetica" });
-  }
+  const imgColW = BOOK_CONTENT_W * 0.44;
+  const gap = 6;
+  const textColW = BOOK_CONTENT_W - imgColW - gap;
+  const lineGap = (size: number) => size * 0.52;
 
-  if (f.imageDataUrl) {
-    b.image(f.imageDataUrl, BOOK_CONTENT_W * 0.55, 55);
-  }
+  const imgBox = f.imageDataUrl ? b.measureImageBox(f.imageDataUrl, imgColW, 120) : { w: 0, h: 0 };
 
+  const blocks: { lines: string[]; size: number; bold?: boolean; italic?: boolean; color?: [number, number, number]; gapBefore: number }[] = [];
+  if (f.tag) {
+    blocks.push({
+      lines: b.measureParagraphLines(`Tag: ${FORMATION_TAG_LABELS[f.tag]}`, textColW, 8, "helvetica", true),
+      size: 8,
+      bold: true,
+      color: [128, 120, 112],
+      gapBefore: 0,
+    });
+  }
   if (f.trait.trim()) {
-    b.paragraph(`Trait: ${f.trait.trim()}`, { size: 10.5, bold: true });
+    blocks.push({
+      lines: b.measureParagraphLines(`Trait: ${f.trait.trim()}`, textColW, 12.5, "times", true),
+      size: 12.5,
+      bold: true,
+      gapBefore: blocks.length ? 3 : 0,
+    });
   }
   if (f.detail.trim()) {
-    b.paragraph(f.detail.trim(), { size: 9.5 });
+    blocks.push({
+      lines: b.measureParagraphLines(f.detail.trim(), textColW, 10, "times"),
+      size: 10,
+      gapBefore: blocks.length ? 3 : 0,
+    });
   }
-  if (!f.imageDataUrl && !f.trait.trim() && !f.detail.trim() && captionParts.length === 0) {
-    b.paragraph("(No details recorded for this entry.)", { size: 8.5, italic: true, color: [128, 120, 112] });
+  if (blocks.length === 0) {
+    blocks.push({ lines: ["(No trait or detail recorded for this entry.)"], size: 9, italic: true, color: [128, 120, 112], gapBefore: 0 });
   }
-  b.divider();
-  b.spacer(2);
+
+  const textH = blocks.reduce((sum, blk) => sum + blk.gapBefore + blk.lines.length * lineGap(blk.size), 0);
+  const totalH = Math.max(imgBox.h, textH);
+  b.ensureSpace(totalH + 8);
+
+  const topY = b.y;
+  const x = b.contentLeft();
+  if (f.imageDataUrl && imgBox.w > 0) {
+    b.drawImageBox(f.imageDataUrl, x, topY, imgBox.w, imgBox.h);
+  }
+
+  const textX = x + imgColW + gap;
+  let ty = topY;
+  for (const blk of blocks) {
+    ty += blk.gapBefore;
+    ty = b.drawParagraphLines(blk.lines, textX, ty, { size: blk.size, bold: blk.bold, italic: blk.italic, color: blk.color });
+  }
+
+  b.y = topY + totalH + 10;
 }
 
 function slugify(s: string): string {
@@ -149,47 +247,76 @@ function slugify(s: string): string {
 
 /**
  * Builds and downloads a KDP-ready 6x9in interior PDF from the Formation
- * Library: a title page, copyright page, chaptered Table of Contents, one
- * chapter per group (Parameter/Trait/Character, per `options.groupBy`), and
- * a back-of-book alphabetical index by both Trait and Character — every TOC
- * and index row hyperlinked to its target page.
+ * Library. Chapters are the unique combination of the selected chapterDims
+ * (Parameter/Trait/Character, any combination); within a chapter, entries
+ * are grouped for display by whichever of Parameter/Character/Sub-category
+ * aren't already the chapter's own dimension, printing a sub-heading only
+ * when that combination changes so runs of similar formations aren't
+ * captioned redundantly. One formation, image beside its trait/detail, per
+ * page. A back-of-book alphabetical index by both Trait and Character
+ * closes the book, every index page number individually hyperlinked, as is
+ * the whole Table of Contents row for each chapter.
  */
 export function generateFormationsBookPdf(formations: FormationEntry[], options: BookOptions): { includedCount: number } {
+  const chapterDims = options.chapterDims.length ? options.chapterDims : (["parameter"] as BookGroupBy[]);
   const included = filterFormationsForBook(formations, options.filter);
 
-  const groups = new Map<string, FormationEntry[]>();
+  const groups = new Map<string, { key: ChapterKey; entries: FormationEntry[] }>();
   for (const f of included) {
-    const key = groupKey(f, options.groupBy);
-    const list = groups.get(key);
-    if (list) list.push(f);
-    else groups.set(key, [f]);
+    const key = buildChapterKey(f, chapterDims);
+    const existing = groups.get(key.label);
+    if (existing) existing.entries.push(f);
+    else groups.set(key.label, { key, entries: [f] });
   }
-  const chapterKeys = sortChapterKeys(Array.from(groups.keys()), options.groupBy);
-  for (const key of chapterKeys) {
-    groups.get(key)!.sort((a, b) => {
-      const byChar = (a.character || "").localeCompare(b.character || "");
-      if (byChar !== 0) return byChar;
-      const bySub = (a.subCategory || "").localeCompare(b.subCategory || "");
-      if (bySub !== 0) return bySub;
-      return a.createdAt.localeCompare(b.createdAt);
+
+  const subDims = subheadingDims(chapterDims);
+  const chapterLabels = Array.from(groups.keys()).sort((a, c) => compareChapterKeys(groups.get(a)!.key, groups.get(c)!.key, chapterDims));
+  for (const label of chapterLabels) {
+    groups.get(label)!.entries.sort((a, b2) => {
+      for (const dim of subDims) {
+        const av = subheadingValue(a, dim);
+        const bv = subheadingValue(b2, dim);
+        if (!av && bv) return 1;
+        if (av && !bv) return -1;
+        const c = av.localeCompare(bv, undefined, { sensitivity: "base" });
+        if (c !== 0) return c;
+      }
+      return a.createdAt.localeCompare(b2.createdAt);
     });
   }
 
   const title = options.title.trim() || "Letter Formations in Handwriting Analysis";
   const b = new BookPdfBuilder(title);
 
+  if (options.coverFrontDataUrl) b.addCoverPage(options.coverFrontDataUrl);
   drawTitlePage(b, { ...options, title });
   drawCopyrightPage(b, { ...options, title });
 
-  const chapterTitles = [...chapterKeys, "Index by Trait", "Index by Character"];
+  const chapterTitles = [...chapterLabels, "Index by Trait", "Index by Character"];
   b.reserveToc(chapterTitles);
 
   const traitPages = new Map<string, number[]>();
   const charPages = new Map<string, number[]>();
 
-  for (const key of chapterKeys) {
-    b.startChapter(key, key);
-    for (const f of groups.get(key)!) {
+  for (const label of chapterLabels) {
+    b.startChapter(label, label);
+    let prevSubKey = "";
+    let first = true;
+    for (const f of groups.get(label)!.entries) {
+      if (!first) b.addPage();
+      first = false;
+
+      const subKey = subDims.map((d) => subheadingValue(f, d)).join("");
+      if (subKey !== prevSubKey) {
+        const subLabel = subDims
+          .map((d) => ({ d, v: subheadingValue(f, d) }))
+          .filter((p) => p.v)
+          .map((p) => `${DIM_CAPTION_LABEL[p.d]}: ${p.d === "character" ? `"${p.v}"` : p.v}`)
+          .join("   ·   ");
+        if (subLabel) b.subheading(subLabel);
+        prevSubKey = subKey;
+      }
+
       drawEntry(b, f);
       const page = b.pageNumber;
       const traitKey = f.trait.trim();
@@ -220,9 +347,12 @@ export function generateFormationsBookPdf(formations: FormationEntry[], options:
     b.indexRow(term, charPages.get(term)!);
   }
 
+  if (options.coverBackDataUrl) b.addCoverPage(options.coverBackDataUrl);
+
   b.finalize();
   const dateStr = new Date().toISOString().slice(0, 10);
   b.save(`${slugify(title)}-${dateStr}.pdf`);
 
   return { includedCount: included.length };
 }
+

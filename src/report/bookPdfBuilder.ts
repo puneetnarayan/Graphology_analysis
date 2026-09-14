@@ -24,7 +24,7 @@ const HEADER_RULE_Y = 16;
 const FOOTER_RULE_Y = BOOK_PAGE_H - 16;
 const FOOTER_TEXT_Y = BOOK_PAGE_H - 10;
 
-type RGB = [number, number, number];
+export type RGB = [number, number, number];
 
 const INK: RGB = [30, 27, 24];
 const INK_BODY: RGB = [55, 50, 46];
@@ -32,6 +32,16 @@ const MUTED: RGB = [128, 120, 112];
 const ACCENT: RGB = [138, 52, 85];
 const ACCENT_DARK: RGB = [110, 40, 68];
 const DIVIDER: RGB = [222, 213, 205];
+
+/**
+ * Print target used to size embedded images: they are only ever scaled
+ * *down* to fit a requested box, never up past their native pixel density
+ * at this DPI — which is what causes visible pixelation. A low-resolution
+ * source image simply prints smaller (and stays sharp) instead of being
+ * blown up blurry.
+ */
+const TARGET_PRINT_DPI = 300;
+const MM_PER_INCH = 25.4;
 
 interface ChapterEntry {
   id: string;
@@ -65,6 +75,8 @@ export class BookPdfBuilder {
   private tocRowRef: Record<string, { page: number; y: number }> = {};
   tocStartPage = 0;
   private tocPageCount = 0;
+  /** Pages with no header/footer/page-number at all: covers, title page, copyright page. */
+  private chromeFreePages = new Set<number>();
 
   constructor(private bookTitle: string) {
     this.doc = new jsPDF({ unit: "mm", format: [BOOK_PAGE_W, BOOK_PAGE_H], compress: true });
@@ -78,8 +90,32 @@ export class BookPdfBuilder {
     return page % 2 === 1;
   }
 
-  private contentLeft(page: number = this.pageNumber): number {
+  /** Left edge of the text column on the given page — mirrors by odd/even page for binding. */
+  contentLeft(page: number = this.pageNumber): number {
     return this.isRecto(page) ? GUTTER_MARGIN : OUTSIDE_MARGIN;
+  }
+
+  /** Marks the current page as chrome-free (no running header/footer/page number). */
+  markChromeFree(): void {
+    this.chromeFreePages.add(this.pageNumber);
+  }
+
+  private frontPageClaimed = false;
+
+  /**
+   * Claims the current page for a free-standing front-matter block (cover,
+   * title page). jsPDF always creates page 1 up front whether it's used or
+   * not — the first caller of claimPage() gets to use that pre-existing
+   * page 1 directly; every caller after that gets a fresh page instead, so
+   * a cover and the title page never end up drawn on top of each other, and
+   * page 1 is never left blank and wasted when nothing claims it first.
+   */
+  claimPage(): void {
+    if (this.pageNumber === 1 && !this.frontPageClaimed) {
+      this.frontPageClaimed = true;
+      return;
+    }
+    this.addPage();
   }
 
   private setTextColor(c: RGB) {
@@ -155,6 +191,22 @@ export class BookPdfBuilder {
     this.y += 10;
   }
 
+  /** An inline sub-heading within a chapter (not a TOC entry, just a visual grouping label). */
+  subheading(text: string): void {
+    if (!text) return;
+    this.ensureSpace(9);
+    this.doc.setFont("helvetica", "bold");
+    this.doc.setFontSize(10.5);
+    this.setTextColor(ACCENT_DARK);
+    const x = this.contentLeft();
+    const lines = this.doc.splitTextToSize(text, BOOK_CONTENT_W) as string[];
+    for (const line of lines) {
+      this.doc.text(line, x, this.y);
+      this.y += 5.2;
+    }
+    this.y += 2;
+  }
+
   paragraph(
     text: string,
     opts: { size?: number; color?: RGB; gap?: number; italic?: boolean; bold?: boolean; font?: "times" | "helvetica" } = {},
@@ -189,22 +241,88 @@ export class BookPdfBuilder {
     this.y += 4;
   }
 
-  image(dataUrl: string, maxWidthMm: number, maxHeightMm: number): void {
+  /**
+   * Computes the mm size an image should print at to fit within the given
+   * box without ever exceeding its native pixel density at TARGET_PRINT_DPI
+   * — the box is a ceiling, not a target, so a low-resolution source image
+   * ends up smaller than the box (and sharp) rather than upscaled (and
+   * pixelated).
+   */
+  measureImageBox(dataUrl: string, maxWidthMm: number, maxHeightMm: number): { w: number; h: number } {
+    const props = this.doc.getImageProperties(dataUrl);
+    const boxMaxWpx = (maxWidthMm / MM_PER_INCH) * TARGET_PRINT_DPI;
+    const boxMaxHpx = (maxHeightMm / MM_PER_INCH) * TARGET_PRINT_DPI;
+    const scale = Math.min(1, boxMaxWpx / props.width, boxMaxHpx / props.height);
+    const wPx = props.width * scale;
+    const hPx = props.height * scale;
+    return { w: (wPx / TARGET_PRINT_DPI) * MM_PER_INCH, h: (hPx / TARGET_PRINT_DPI) * MM_PER_INCH };
+  }
+
+  /** Draws an image at an exact position/size with no pagination or cursor advance — for custom layouts. */
+  drawImageBox(dataUrl: string, x: number, y: number, w: number, h: number): void {
     try {
-      const props = this.doc.getImageProperties(dataUrl);
-      let w = maxWidthMm;
-      let h = (props.height / props.width) * w;
-      if (h > maxHeightMm) {
-        h = maxHeightMm;
-        w = (props.width / props.height) * h;
-      }
-      this.ensureSpace(h + 4);
-      const x = this.contentLeft();
-      this.doc.addImage(dataUrl, imageFormatFromDataUrl(dataUrl), x, this.y, w, h);
-      this.y += h + 5;
+      this.doc.addImage(dataUrl, imageFormatFromDataUrl(dataUrl), x, y, w, h);
     } catch {
       // best-effort embed; skip silently on failure
     }
+  }
+
+  image(dataUrl: string, maxWidthMm: number, maxHeightMm: number): void {
+    const { w, h } = this.measureImageBox(dataUrl, maxWidthMm, maxHeightMm);
+    if (w <= 0 || h <= 0) return;
+    this.ensureSpace(h + 4);
+    this.drawImageBox(dataUrl, this.contentLeft(), this.y, w, h);
+    this.y += h + 5;
+  }
+
+  /** Splits text into wrapped lines for a column of the given width, without drawing. */
+  measureParagraphLines(text: string, width: number, size: number, font: "times" | "helvetica" = "times", bold = false): string[] {
+    if (!text) return [];
+    this.doc.setFont(font, bold ? "bold" : "normal");
+    this.doc.setFontSize(size);
+    return this.doc.splitTextToSize(text, width) as string[];
+  }
+
+  /** Draws pre-split lines starting at an exact x/y (a text column beside an image); returns the y after. */
+  drawParagraphLines(
+    lines: string[],
+    x: number,
+    y: number,
+    opts: { size?: number; color?: RGB; italic?: boolean; bold?: boolean; font?: "times" | "helvetica" } = {},
+  ): number {
+    const size = opts.size ?? 9.5;
+    const font = opts.font ?? "times";
+    this.doc.setFont(font, opts.bold ? "bold" : opts.italic ? "italic" : "normal");
+    this.doc.setFontSize(size);
+    this.setTextColor(opts.color ?? INK_BODY);
+    let ty = y;
+    const lineGap = size * 0.52;
+    for (const line of lines) {
+      this.doc.text(line, x, ty);
+      ty += lineGap;
+    }
+    return ty;
+  }
+
+  /**
+   * A full-bleed image page (front/back cover artwork) — fitted within the
+   * whole trim size (no text margins), centered, never cropped. Added as
+   * its own page and marked chrome-free (no header/footer/page number).
+   */
+  addCoverPage(dataUrl: string): void {
+    this.claimPage();
+    try {
+      const props = this.doc.getImageProperties(dataUrl);
+      const scale = Math.min(BOOK_PAGE_W / props.width, BOOK_PAGE_H / props.height);
+      const w = props.width * scale;
+      const h = props.height * scale;
+      const x = (BOOK_PAGE_W - w) / 2;
+      const y = (BOOK_PAGE_H - h) / 2;
+      this.doc.addImage(dataUrl, imageFormatFromDataUrl(dataUrl), x, y, w, h);
+    } catch {
+      // best-effort embed; leave the page blank on failure
+    }
+    this.markChromeFree();
   }
 
   /** One back-of-book index row: "Term ....... 4, 9, 17" with each page number individually hyperlinked. */
@@ -270,13 +388,11 @@ export class BookPdfBuilder {
     this.doc.line(x, HEADER_RULE_Y, x + BOOK_CONTENT_W, HEADER_RULE_Y);
   }
 
-  private drawFooter(pageNo: number, minimal = false): void {
+  private drawFooter(pageNo: number): void {
     const x = this.contentLeft(pageNo);
-    if (!minimal) {
-      this.setDrawColor(DIVIDER);
-      this.doc.setLineWidth(0.3);
-      this.doc.line(x, FOOTER_RULE_Y, x + BOOK_CONTENT_W, FOOTER_RULE_Y);
-    }
+    this.setDrawColor(DIVIDER);
+    this.doc.setLineWidth(0.3);
+    this.doc.line(x, FOOTER_RULE_Y, x + BOOK_CONTENT_W, FOOTER_RULE_Y);
     this.doc.setFont("helvetica", "normal");
     this.doc.setFontSize(8.5);
     this.setTextColor(MUTED);
@@ -360,11 +476,8 @@ export class BookPdfBuilder {
     }
 
     for (let p = 1; p <= totalPages; p += 1) {
+      if (this.chromeFreePages.has(p)) continue;
       doc.setPage(p);
-      if (p === 1 || p === 2) {
-        this.drawFooter(p, true);
-        continue;
-      }
       const chapterTitle = this.pageChapterTitle[p] ?? "";
       this.drawHeader(p, chapterTitle);
       this.drawFooter(p);

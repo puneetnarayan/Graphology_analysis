@@ -9,8 +9,15 @@ import { FORMATION_TAGS, type FormationEntry, type FormationTag } from "@/types"
 
 const CSV_COLUMNS = ["parameter", "character", "subCategory", "detail", "trait", "tag"];
 
-/** Formation reference images are small illustrative crops, not full samples — keep them light. */
-const MAX_FORMATION_IMAGE_DIM = 400;
+/**
+ * Formation reference images are small illustrative crops, not full samples,
+ * but they're also printed at real size in the Book/PDF export — capping
+ * this too low is what made exported images look pixelated (they were being
+ * scaled up past their native resolution to fill the printed page). 1200px
+ * is enough for a sharp ~4in-wide image at 300 DPI while staying well within
+ * IndexedDB's storage headroom.
+ */
+const MAX_FORMATION_IMAGE_DIM = 1200;
 /** Wait for a quiet moment after the last change before writing the auto-backup file. */
 const AUTO_BACKUP_DEBOUNCE_MS = 800;
 

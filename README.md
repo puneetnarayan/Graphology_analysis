@@ -288,22 +288,44 @@ hides existing text behind a fixed-height box.
 building on `src/report/bookPdfBuilder.ts` and `src/report/formationsBookPdf.ts`) turns the
 library into a paperback interior file sized for Amazon KDP's 6&times;9in trim:
 
-- **Chapter grouping** — choose one chapter per **Parameter** (the app's own handwriting-analysis
-  vocabulary, in that canonical order), per **Trait**, or per **Character**; entries missing that
-  field land in a trailing "(No … set)" chapter rather than being dropped.
+- **Chapter grouping** — a multi-select: click **Parameter**, **Trait**, and/or **Character** to
+  toggle each on or off (at least one always stays selected). A chapter is then built per unique
+  combination of whichever are selected — e.g. Parameter alone gives one chapter per parameter;
+  Parameter + Character gives one chapter per parameter/character pair. Whichever of Parameter,
+  Character, or Sub-category *isn't* part of the chapter combination still gets grouped for
+  display within each chapter: a small sub-heading appears only when that combination changes
+  between consecutive entries, so a run of similar formations isn't re-captioned on every page.
+  Entries missing a selected field land in a trailing "(No … set)" chapter rather than being
+  dropped.
+- **One formation per page** — image on the left, its Trait and Detail in a column beside it
+  (with a small Tag line above). Images are only ever scaled *down* to fit that column, never
+  upscaled past their native resolution — a low-resolution source image just prints smaller and
+  stays sharp instead of being blown up and pixelated. Formation images are now stored at up to
+  1200px (`MAX_FORMATION_IMAGE_DIM` in `src/state/useFormations.ts`, raised from the original
+  400px specifically so exported pages have enough real pixels to print sharp at a reasonable
+  size) — existing lower-resolution entries aren't retroactively upscaled, so re-adding a sharper
+  source image via Edit is worth doing for older entries destined for print.
 - **Entry filter** — **Complete entries only** (has an image, detail, and trait — every printed
   page carries real content), **Has an image** (detail/trait optional), or **All entries**. Live
   counts next to each option update from the current library so you can see what you'll get
   before generating.
+- **Front/back cover art (optional)** — browse or drag-and-drop an image for each; if provided,
+  it's embedded as its own full page (front first, back last), fitted to the 6&times;9in trim
+  without cropping. Sizing and print-readiness of cover art (bleed, resolution, trim marks, etc.)
+  is left entirely to you — the app only embeds what's uploaded, no validation.
+- **Edition and copyright year** — optional Edition text (e.g. "First Edition") shown on the
+  title page, and a Copyright year field defaulting to the current year, both feeding the
+  copyright page.
 - The PDF itself: a title page and a copyright page (placeholder ISBN/copyright text you fill in
   before publishing), a **Table of Contents** whose page length is reserved to fit the actual
-  chapter list and whose rows are hyperlinked to their chapter, a running header on every chapter
-  page (chapter title, plus a **Contents** link back to that chapter's own Contents row), and a
-  **back-of-book Index** — alphabetical by Trait and, separately, by Character — with every page
-  number individually hyperlinked. Left/right margins mirror by page (inner "gutter" vs. outer
-  edge) so the text block sits centered once bound; the gutter is sized generously enough to stay
-  within KDP's minimum at any realistic page count, so double-check it against KDP's current
-  requirement for your book's actual final page count before uploading.
+  chapter list and whose *entire row* (not just the title text) is hyperlinked to that chapter, a
+  running header on every chapter page (chapter title, plus a **Contents** link back to that
+  chapter's own Contents row), and a **back-of-book Index** — alphabetical by Trait and,
+  separately, by Character — with every page number individually hyperlinked. Left/right margins
+  mirror by page (inner "gutter" vs. outer edge) so the text block sits centered once bound; the
+  gutter is sized generously enough to stay within KDP's minimum at any realistic page count, so
+  double-check it against KDP's current requirement for your book's actual final page count
+  before uploading.
 - All PDF construction happens client-side in the browser (jsPDF), same as the existing Analysis
   report — nothing is uploaded anywhere to generate it.
 
