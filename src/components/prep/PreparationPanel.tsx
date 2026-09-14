@@ -96,6 +96,22 @@ function LiveAnalysisCard() {
         </div>
       )}
 
+      {ctx.accepted && ctx.autoTuneComparison && ctx.autoTuneComparison.basis === "confidence" && (
+        <div className="mt-2 rounded-lg bg-mint-soft px-3 py-2 text-xs">
+          <p className="font-medium text-[#2f6b52]">Auto-correct result</p>
+          <p className="text-[#2f6b52]/90 mt-0.5">
+            Analysis confidence before: <strong>{ctx.autoTuneComparison.before}%</strong> → after:{" "}
+            <strong>{ctx.autoTuneComparison.after}%</strong>
+            {ctx.autoTuneComparison.after !== ctx.autoTuneComparison.before && (
+              <span className="ml-1">
+                ({ctx.autoTuneComparison.after > ctx.autoTuneComparison.before ? "+" : ""}
+                {ctx.autoTuneComparison.after - ctx.autoTuneComparison.before})
+              </span>
+            )}
+          </p>
+        </div>
+      )}
+
       <label className="mt-3 flex flex-col gap-1.5 text-xs">
         <span className="flex justify-between text-text-muted font-medium">
           <span>Live update delay</span>
@@ -330,6 +346,13 @@ export function PreparationPanel() {
             >
               {ctx.isAutoTuning ? "Tuning…" : "Re-run auto-tune now →"}
             </Button>
+            {ctx.autoTuneComparison && (
+              <p className="mt-1 text-[11px] text-text-muted">
+                {ctx.autoTuneComparison.basis === "confidence" ? "Analysis confidence" : "Scan quality"} before:{" "}
+                <strong className="text-text-strong">{ctx.autoTuneComparison.before}%</strong> → after:{" "}
+                <strong className="text-text-strong">{ctx.autoTuneComparison.after}%</strong>
+              </p>
+            )}
             <div className="mt-3 flex flex-col gap-3">
               <Slider label="Brightness" value={p.brightness} min={-100} max={100} onChange={(v) => ctx.updatePreprocessing({ brightness: v })} />
               <Slider label="Contrast" value={p.contrast} min={-100} max={100} onChange={(v) => ctx.updatePreprocessing({ contrast: v })} />

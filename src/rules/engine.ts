@@ -37,6 +37,8 @@ export const ALL_RULES: Rule[] = [
   ...signatureRules,
 ];
 
+export const TOTAL_RULE_COUNT = ALL_RULES.length;
+
 export interface RuleEngineOutput {
   ruleActivations: RuleActivation[];
   evidence: Evidence[];
@@ -65,18 +67,33 @@ export function runRuleEngine(
     const effectiveWeight = rule.ruleWeight * match.observationConfidence * sampleSufficiency * imageQuality;
     if (effectiveWeight < CONFIDENCE_THRESHOLDS.MIN_EFFECTIVE_WEIGHT) continue;
 
-    evidenceCounter += 1;
-    const evId = evidenceId(evidenceCounter);
-    evidence.push({
-      id: evId,
-      featureKey: rule.category,
-      label: rule.description,
-      measurement: match.measurementLabel,
-      confidence: match.observationConfidence,
-      regions: match.regions,
-      ruleId: rule.id,
-      ruleContribution: Number(effectiveWeight.toFixed(3)),
-      interpretation: rule.effects.map((e) => e.explanation).join("; "),
+    // One evidence entry per underlying region rather than one entry bundling
+    // every region: this makes each specific piece of handwriting (a single
+    // word, a single t-bar crossing...) independently traceable and
+    // clickable, instead of collapsing an entire rule's evidence into one
+    // undifferentiated row.
+    const interpretation = rule.effects.map((e) => e.explanation).join("; ");
+    const evidenceIds: string[] = [];
+    const regionsForEvidence = match.regions.length > 0 ? match.regions : [undefined];
+    const multiple = regionsForEvidence.length > 1;
+    regionsForEvidence.forEach((region, index) => {
+      evidenceCounter += 1;
+      const evId = evidenceId(evidenceCounter);
+      evidenceIds.push(evId);
+      const sampleLabel = region?.label ? ` — ${region.label}` : "";
+      evidence.push({
+        id: evId,
+        featureKey: rule.category,
+        label: rule.description,
+        measurement: multiple
+          ? `${match.measurementLabel} (sample ${index + 1}/${regionsForEvidence.length}${sampleLabel})`
+          : match.measurementLabel,
+        confidence: match.observationConfidence,
+        regions: region ? [region] : [],
+        ruleId: rule.id,
+        ruleContribution: Number(effectiveWeight.toFixed(3)),
+        interpretation,
+      });
     });
 
     ruleActivations.push({
@@ -91,7 +108,7 @@ export function runRuleEngine(
       sampleSufficiency,
       imageQuality,
       effectiveWeight,
-      evidenceIds: [evId],
+      evidenceIds,
     });
   }
 

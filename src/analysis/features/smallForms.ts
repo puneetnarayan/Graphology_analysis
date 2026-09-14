@@ -32,7 +32,7 @@ function unionRegion(a: ConnectedComponent, b: ConnectedComponent, canvasWidth: 
   };
 }
 
-function sampleRegions(regions: ImageRegion[], limit = 5): ImageRegion[] {
+function sampleRegions(regions: ImageRegion[], limit = 10): ImageRegion[] {
   return regions.slice(0, limit);
 }
 

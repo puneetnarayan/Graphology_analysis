@@ -13,6 +13,14 @@ function scoreSettings(originalCanvas: HTMLCanvasElement, settings: Preprocessin
   return assessScanQuality(imageData).overallScore;
 }
 
+export interface AutoTuneResult {
+  settings: PreprocessingSettings;
+  /** Scan-quality score of the settings passed in, before any change. */
+  baselineScore: number;
+  /** Scan-quality score of the returned (tuned) settings. */
+  tunedScore: number;
+}
+
 /**
  * Best-effort local search (coordinate ascent, one pass) over the Tone &
  * Clarity parameters — brightness, contrast, sharpen, noise reduction,
@@ -29,9 +37,10 @@ function scoreSettings(originalCanvas: HTMLCanvasElement, settings: Preprocessin
 export function autoTuneToneForQuality(
   originalCanvas: HTMLCanvasElement,
   baseSettings: PreprocessingSettings,
-): PreprocessingSettings {
+): AutoTuneResult {
   let best = { ...baseSettings };
-  let bestScore = scoreSettings(originalCanvas, best);
+  const baselineScore = scoreSettings(originalCanvas, best);
+  let bestScore = baselineScore;
 
   function tryValues<K extends keyof PreprocessingSettings>(key: K, values: PreprocessingSettings[K][]) {
     for (const value of values) {
@@ -52,5 +61,5 @@ export function autoTuneToneForQuality(
   tryValues("grayscale", [false, true]);
   tryValues("backgroundNormalize", [false, true]);
 
-  return best;
+  return { settings: best, baselineScore, tunedScore: bestScore };
 }

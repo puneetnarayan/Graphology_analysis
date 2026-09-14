@@ -13,8 +13,9 @@ function StatTile({ label, value, tone }: { label: string; value: string; tone: 
 }
 
 export function DashboardSummary({ report, isLiveUpdating }: { report: AnalysisReport; isLiveUpdating?: boolean }) {
+  const totalFeatures = Object.values(report.features).length;
   const availableFeatures = Object.values(report.features).filter((f) => f.available).length;
-  const limitedFeatures = Object.values(report.features).filter((f) => !f.available).length;
+  const regionCount = report.evidence.reduce((a, e) => a + e.regions.length, 0);
 
   return (
     <Card>
@@ -30,10 +31,10 @@ export function DashboardSummary({ report, isLiveUpdating }: { report: AnalysisR
       <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
         <StatTile label="Scan Readability" value={`${report.scanQuality.overallScore}%`} tone="sky" />
         <StatTile label="Analysis Confidence" value={`${report.overallConfidence}%`} tone="primary" />
-        <StatTile label="Evidence Regions" value={String(report.evidence.length)} tone="mint" />
-        <StatTile label="Rules Triggered" value={String(report.ruleActivations.length)} tone="peach" />
-        <StatTile label="Features Analyzed" value={String(availableFeatures)} tone="mint" />
-        <StatTile label="Limited Features" value={String(limitedFeatures)} tone="peach" />
+        <StatTile label="Rules Triggered" value={`${report.ruleActivations.length} / ${report.totalRuleCount}`} tone="peach" />
+        <StatTile label="Features Analyzed" value={`${availableFeatures} / ${totalFeatures}`} tone="mint" />
+        <StatTile label="Evidence Entries" value={String(report.evidence.length)} tone="peach" />
+        <StatTile label="Regions Highlighted" value={String(regionCount)} tone="mint" />
       </div>
       <div className="mt-4 grid grid-cols-3 gap-3 text-center text-xs text-text-muted">
         <div>

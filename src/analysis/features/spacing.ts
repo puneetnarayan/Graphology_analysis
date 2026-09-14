@@ -5,7 +5,7 @@ import { medianCharWidth } from "./common";
 import { featureReadability, type PipelineContext } from "./pipelineContext";
 
 /** A handful of representative word bounding boxes, for evidence traceability. */
-function sampleWordRegions(ctx: PipelineContext, limit = 6): ImageRegion[] {
+function sampleWordRegions(ctx: PipelineContext, limit = 10): ImageRegion[] {
   const regions: ImageRegion[] = [];
   for (const lw of ctx.lineWordData) {
     for (const w of lw.words) {

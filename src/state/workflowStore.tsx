@@ -32,6 +32,13 @@ export interface ConfidenceTrend {
   delta: number;
 }
 
+export interface AutoTuneComparison {
+  /** "confidence" once a first analysis has run (full overallConfidence); "quality" beforehand (scan-quality score only). */
+  basis: "confidence" | "quality";
+  before: number;
+  after: number;
+}
+
 /** Default debounce delay before a live re-analysis fires after a Preparation change. */
 export const DEFAULT_LIVE_UPDATE_DELAY_MS = 200;
 export const MIN_LIVE_UPDATE_DELAY_MS = 50;
@@ -64,6 +71,7 @@ interface WorkflowState {
   confidenceTrend: ConfidenceTrend | null;
   autoCorrectEnabled: boolean;
   isAutoTuning: boolean;
+  autoTuneComparison: AutoTuneComparison | null;
 }
 
 interface WorkflowActions {
@@ -122,6 +130,7 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
   const [confidenceTrend, setConfidenceTrend] = useState<ConfidenceTrend | null>(null);
   const [autoCorrectEnabled, setAutoCorrectEnabledState] = useState(true);
   const [isAutoTuning, setIsAutoTuning] = useState(false);
+  const [autoTuneComparison, setAutoTuneComparison] = useState<AutoTuneComparison | null>(null);
 
   const originalCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const objectUrlRef = useRef<string | null>(null);
@@ -274,13 +283,14 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
         setOverrides({});
         lastConfidenceRef.current = null;
         setConfidenceTrend(null);
+        setAutoTuneComparison(null);
 
         let initialSettings = DEFAULT_PREPROCESSING;
         if (autoCorrectEnabled) {
           setIsAutoTuning(true);
           await new Promise((r) => setTimeout(r, 0));
           try {
-            initialSettings = autoTuneToneForQuality(canvas, DEFAULT_PREPROCESSING);
+            initialSettings = autoTuneToneForQuality(canvas, DEFAULT_PREPROCESSING).settings;
           } finally {
             setIsAutoTuning(false);
           }
@@ -318,14 +328,31 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
     setIsAutoTuning(true);
     await new Promise((r) => setTimeout(r, 0));
     try {
-      const tuned = autoTuneToneForQuality(originalCanvasRef.current, preprocessing);
+      const wasAccepted = acceptedRef.current;
+      const beforeConfidence = lastConfidenceRef.current;
+      const { settings: tuned, baselineScore, tunedScore } = autoTuneToneForQuality(originalCanvasRef.current, preprocessing);
       setPreprocessing(tuned);
       recomputePreview(tuned);
-      scheduleLiveUpdate(tuned);
+
+      if (wasAccepted) {
+        clearDebounceTimer();
+        await runFullAnalysis(tuned, { initial: false });
+        setAutoTuneComparison({
+          basis: "confidence",
+          before: Math.round(beforeConfidence ?? baselineScore),
+          after: Math.round(lastConfidenceRef.current ?? tunedScore),
+        });
+      } else {
+        setAutoTuneComparison({
+          basis: "quality",
+          before: Math.round(baselineScore),
+          after: Math.round(tunedScore),
+        });
+      }
     } finally {
       setIsAutoTuning(false);
     }
-  }, [preprocessing, recomputePreview, scheduleLiveUpdate]);
+  }, [clearDebounceTimer, preprocessing, recomputePreview, runFullAnalysis]);
 
   const setAutoCorrectEnabled = useCallback(
     (v: boolean) => {
@@ -431,6 +458,7 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
     setProgressEvents([]);
     setIsLiveUpdating(false);
     setIsAutoTuning(false);
+    setAutoTuneComparison(null);
     lastConfidenceRef.current = null;
     setConfidenceTrend(null);
     setError(null);
@@ -465,6 +493,7 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
       confidenceTrend,
       autoCorrectEnabled,
       isAutoTuning,
+      autoTuneComparison,
       setActiveSection,
       setActiveSubTab,
       loadFile,
@@ -508,6 +537,7 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
       confidenceTrend,
       autoCorrectEnabled,
       isAutoTuning,
+      autoTuneComparison,
       loadFile,
       updatePreprocessing,
       resetPreprocessing,

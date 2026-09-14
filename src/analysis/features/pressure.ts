@@ -99,7 +99,7 @@ export function extractPressure(ctx: PipelineContext): FeatureModuleResult<Press
       notes: "Image-derived pressure proxy. Physical pen pressure cannot be measured from a standard scan.",
       regions: [...comps]
         .sort((a, b) => b.area - a.area)
-        .slice(0, 5)
+        .slice(0, 10)
         .map((c) => componentRegion(c, ctx.canvasWidth, ctx.canvasHeight, "Sampled for ink density")),
     },
   };

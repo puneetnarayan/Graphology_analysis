@@ -15,6 +15,8 @@ export interface AnalysisReport {
   analyzeRegardlessOfQuality: boolean;
   features: AllFeatureResults;
   ruleActivations: RuleActivation[];
+  /** Total number of rules in the rule library that were eligible to fire (denominator for "N of M triggered"). */
+  totalRuleCount: number;
   evidence: Evidence[];
   contradictions: Contradiction[];
   traitScores: TraitScore[];

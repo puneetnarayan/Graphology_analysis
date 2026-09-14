@@ -187,6 +187,13 @@ one-pass local search over a coarse grid, not an exhaustive or globally optimal 
 labeled as such in the UI — and it deliberately leaves rotation, crop, deskew and
 threshold alone, since those are geometry/binarization choices rather than "tone".
 
+Once a first analysis has run, both "Re-run auto-tune now" and toggling the checkbox
+back on report a **before → after** comparison — the real `overallConfidence` from a
+full re-analysis, not just the scan-quality proxy the search itself optimizes — shown
+both in the Tone & Clarity card and in the Live Analysis card. Before that first
+analysis, the same comparison is shown using the scan-quality score alone (labeled as
+such), since there's no full-pipeline confidence yet to compare.
+
 ## Evidence traceability: click a rule, see the ink
 
 Every triggered rule and every evidence-table row is clickable (`RuleChip`,
@@ -201,6 +208,15 @@ size/margins/zones/pressure/legibility/rhythm, unioned bar+stem boxes for t-bars
 i-dots, component boxes for ovals), and each rule forwards `observation.regions` as its
 own evidence regions — so "what part of the handwriting produced this" is answerable for
 essentially every rule, not just slant/baseline.
+
+Per-extractor region sample caps were raised from ~5 to ~10, and the rule engine
+(`src/rules/engine.ts`) now emits **one evidence entry per region** instead of bundling
+every region for a rule into a single row — a rule matched against 6 words produces 6
+individually clickable evidence rows (labeled "sample 1/6", "sample 2/6", ...), not one
+row with 6 boxes lumped together. The Analysis dashboard reflects this: "Rules
+Triggered" and "Features Analyzed" show **N / total** against the full rule library and
+feature list, and "Evidence Entries" / "Regions Highlighted" report the (now larger)
+row and region counts directly.
 
 ## PDF report
 

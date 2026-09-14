@@ -1,6 +1,6 @@
 import { assessScanQuality } from "./quality/qualityEngine";
 import { buildPipelineContext, extractAllFeatures } from "./features";
-import { runRuleEngine } from "@/rules/engine";
+import { runRuleEngine, TOTAL_RULE_COUNT } from "@/rules/engine";
 import { ENGINE_VERSION, RULE_LIBRARY_VERSION } from "@/types";
 import type { AnalysisReport } from "@/types";
 
@@ -100,6 +100,7 @@ export function runAnalysisPipeline(
     analyzeRegardlessOfQuality: input.analyzeRegardlessOfQuality,
     features,
     ruleActivations,
+    totalRuleCount: TOTAL_RULE_COUNT,
     evidence,
     contradictions,
     traitScores,

@@ -5,7 +5,7 @@ import { componentRegion } from "./common";
 import { featureReadability, type PipelineContext } from "./pipelineContext";
 
 /** Spreads representative samples across the page rather than clustering at the start. */
-function spreadSampleRegions(ctx: PipelineContext, limit = 5) {
+function spreadSampleRegions(ctx: PipelineContext, limit = 10) {
   const comps = ctx.plausibleComponents;
   if (comps.length === 0) return [];
   const step = Math.max(1, Math.floor(comps.length / limit));
