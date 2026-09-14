@@ -23,6 +23,7 @@ function isSectionEnabled(section: PrimarySection, ctx: ReturnType<typeof useWor
     case "report":
       return !!ctx.analysisReport;
     case "formations":
+    case "bookPdf":
       return true;
     default:
       return false;
@@ -39,6 +40,7 @@ const ICONS: Record<PrimarySection, string> = {
   evidence: "⊕",
   report: "≣",
   formations: "📚",
+  bookPdf: "📖",
 };
 
 export function Sidebar() {

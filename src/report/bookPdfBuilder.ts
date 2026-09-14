@@ -243,16 +243,18 @@ export class BookPdfBuilder {
 
   /**
    * Computes the mm size an image should print at to fit within the given
-   * box without ever exceeding its native pixel density at TARGET_PRINT_DPI
-   * — the box is a ceiling, not a target, so a low-resolution source image
-   * ends up smaller than the box (and sharp) rather than upscaled (and
-   * pixelated).
+   * box. By default (allowUpscale=1) it never exceeds the image's native
+   * pixel density at TARGET_PRINT_DPI — the box is a ceiling, not a target,
+   * so a low-resolution source image ends up smaller than the box (and
+   * sharp) rather than upscaled (and pixelated). Pass allowUpscale > 1 to
+   * deliberately permit printing larger than native resolution — a
+   * conscious trade of sharpness for size, left to the caller to decide.
    */
-  measureImageBox(dataUrl: string, maxWidthMm: number, maxHeightMm: number): { w: number; h: number } {
+  measureImageBox(dataUrl: string, maxWidthMm: number, maxHeightMm: number, allowUpscale = 1): { w: number; h: number } {
     const props = this.doc.getImageProperties(dataUrl);
     const boxMaxWpx = (maxWidthMm / MM_PER_INCH) * TARGET_PRINT_DPI;
     const boxMaxHpx = (maxHeightMm / MM_PER_INCH) * TARGET_PRINT_DPI;
-    const scale = Math.min(1, boxMaxWpx / props.width, boxMaxHpx / props.height);
+    const scale = Math.min(allowUpscale, boxMaxWpx / props.width, boxMaxHpx / props.height);
     const wPx = props.width * scale;
     const hPx = props.height * scale;
     return { w: (wPx / TARGET_PRINT_DPI) * MM_PER_INCH, h: (hPx / TARGET_PRINT_DPI) * MM_PER_INCH };
@@ -308,8 +310,10 @@ export class BookPdfBuilder {
    * A full-bleed image page (front/back cover artwork) — fitted within the
    * whole trim size (no text margins), centered, never cropped. Added as
    * its own page and marked chrome-free (no header/footer/page number).
+   * An optional barcode image is overlaid in the bottom-right corner (the
+   * conventional spot for an ISBN barcode on a back cover).
    */
-  addCoverPage(dataUrl: string): void {
+  addCoverPage(dataUrl: string, barcodeDataUrl?: string | null): void {
     this.claimPage();
     try {
       const props = this.doc.getImageProperties(dataUrl);
@@ -321,6 +325,11 @@ export class BookPdfBuilder {
       this.doc.addImage(dataUrl, imageFormatFromDataUrl(dataUrl), x, y, w, h);
     } catch {
       // best-effort embed; leave the page blank on failure
+    }
+    if (barcodeDataUrl) {
+      const margin = 10;
+      const box = this.measureImageBox(barcodeDataUrl, 32, 20, 2);
+      this.drawImageBox(barcodeDataUrl, BOOK_PAGE_W - margin - box.w, BOOK_PAGE_H - margin - box.h, box.w, box.h);
     }
     this.markChromeFree();
   }

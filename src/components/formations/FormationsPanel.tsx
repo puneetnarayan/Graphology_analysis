@@ -8,7 +8,6 @@ import { FORMATIONS_SUB_TABS, type FormationsSubTab } from "@/state/navigation";
 import { useFormations } from "@/state/useFormations";
 import { extractImageFileFromClipboard } from "@/utils/clipboard";
 import { ImageAnnotator } from "./ImageAnnotator";
-import { BookExportTab } from "./BookExportTab";
 import { HANDWRITING_PARAMETERS, FORMATION_TAGS, FORMATION_TAG_LABELS, type FormationEntry, type FormationTag } from "@/types";
 
 export type FormationsStore = ReturnType<typeof useFormations>;
@@ -1222,8 +1221,7 @@ function BackupReminderModal({ store }: { store: FormationsStore }) {
   );
 }
 
-export function FormationsPanel() {
-  const store = useFormations();
+export function FormationsPanel({ store }: { store: FormationsStore }) {
   const [subTab, setSubTab] = useState<FormationsSubTab>("library");
 
   return (
@@ -1255,7 +1253,6 @@ export function FormationsPanel() {
 
       {subTab === "library" && <FormationLibraryTab store={store} />}
       {subTab === "traitIndex" && <TraitIndexTab store={store} />}
-      {subTab === "book" && <BookExportTab store={store} />}
       {subTab === "backup" && <BackupTab store={store} />}
 
       <BackupReminderModal store={store} />

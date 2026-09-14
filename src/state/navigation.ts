@@ -27,9 +27,10 @@ export type PrimarySection =
   | "profile"
   | "evidence"
   | "report"
-  | "formations";
+  | "formations"
+  | "bookPdf";
 
-export type FormationsSubTab = "library" | "traitIndex" | "book" | "backup";
+export type FormationsSubTab = "library" | "traitIndex" | "backup";
 
 export interface FormationsSubTabDef {
   key: FormationsSubTab;
@@ -39,7 +40,6 @@ export interface FormationsSubTabDef {
 export const FORMATIONS_SUB_TABS: FormationsSubTabDef[] = [
   { key: "library", label: "Formation Library" },
   { key: "traitIndex", label: "Trait Index" },
-  { key: "book", label: "Book / PDF" },
   { key: "backup", label: "Backup & Restore" },
 ];
 
@@ -93,4 +93,5 @@ export const PRIMARY_SECTIONS: { key: PrimarySection; label: string }[] = [
   { key: "evidence", label: "Evidence & Rules" },
   { key: "report", label: "Report" },
   { key: "formations", label: "Letter Formations" },
+  { key: "bookPdf", label: "Book / PDF" },
 ];

@@ -8,17 +8,32 @@ export type BookEntryFilter = "complete" | "all" | "imageOnly";
 /** Fixed priority order used both for compound chapter titles and for sorting. */
 const DIM_ORDER: BookGroupBy[] = ["parameter", "character", "trait"];
 
+/** "continuous" flows multiple entries down a page (like a reference list); "onePerPage" forces a fresh page per entry. */
+export type BookLayout = "continuous" | "onePerPage";
+
 export interface BookOptions {
   title: string;
   author: string;
   edition: string;
   year: string;
+  isbn: string;
   /** At least one dimension, in any combination — a chapter is built per unique combination of the selected fields. */
   chapterDims: BookGroupBy[];
   filter: BookEntryFilter;
+  layout: BookLayout;
+  /**
+   * 50-300: percent of the default image column size to print at. Above
+   * 100 the image may be upscaled past its native resolution to reach that
+   * size — the caller (a human looking at the preview) decides whether the
+   * resulting softness is acceptable, rather than the builder silently
+   * capping it.
+   */
+  imageSizePercent: number;
   /** Data URLs for optional front/back cover art, embedded full-bleed as the first/last page if present. */
   coverFrontDataUrl?: string | null;
   coverBackDataUrl?: string | null;
+  /** Optional ISBN barcode image, overlaid bottom-right on the back cover if present, else shown on the copyright page. */
+  barcodeDataUrl?: string | null;
 }
 
 const UNSPECIFIED_LABEL: Record<BookGroupBy, string> = {
@@ -164,28 +179,44 @@ function drawCopyrightPage(b: BookPdfBuilder, options: BookOptions): void {
     { size: 8 },
   );
   b.spacer(3);
-  b.paragraph("ISBN: [Add your ISBN here before publishing]", { size: 8, italic: true, color: [128, 120, 112] });
+  b.paragraph(options.isbn.trim() ? `ISBN: ${options.isbn.trim()}` : "ISBN: [Add your ISBN here before publishing]", {
+    size: 8,
+    italic: !options.isbn.trim(),
+    color: [128, 120, 112],
+  });
   b.spacer(3);
   b.paragraph(
     "Compiled from the Graphology Analyzer app's Letter Formations library. The formations, details, and trait interpretations recorded here are the author's own handwriting-analysis notes and are presented for informational and educational purposes.",
     { size: 7.5, color: [128, 120, 112] },
   );
+  // The barcode normally lives on the back cover (see addCoverPage's overlay); only shown here
+  // as a fallback so it isn't lost entirely when no back cover image was provided.
+  if (options.barcodeDataUrl && !options.coverBackDataUrl) {
+    b.spacer(4);
+    b.paragraph("ISBN barcode:", { size: 7.5, color: [128, 120, 112] });
+    b.image(options.barcodeDataUrl, 40, 25);
+  }
   b.markChromeFree();
 }
 
 /**
- * One formation per page, image and text side by side: image on the left
- * (never upscaled past its native resolution, so it stays sharp), Tag/Trait/
+ * One formation, image and text side by side: image on the left, Tag/Trait/
  * Detail in a column on the right. Both columns are measured first so the
- * page break (if any) happens before drawing, not mid-entry.
+ * page break (if any) happens before drawing, not mid-entry. `imageScale`
+ * (1 = default size, native resolution only; >1 prints larger, upscaling
+ * past native resolution if the source is small) comes straight from the
+ * user's Image size control.
  */
-function drawEntry(b: BookPdfBuilder, f: FormationEntry): void {
-  const imgColW = BOOK_CONTENT_W * 0.44;
+function drawEntry(b: BookPdfBuilder, f: FormationEntry, imageScale: number): void {
+  const baseColFrac = 0.44;
+  const imgColFrac = Math.min(0.7, baseColFrac * imageScale);
+  const imgColW = BOOK_CONTENT_W * imgColFrac;
   const gap = 6;
   const textColW = BOOK_CONTENT_W - imgColW - gap;
   const lineGap = (size: number) => size * 0.52;
+  const maxImgH = Math.min(190, 120 * imageScale);
 
-  const imgBox = f.imageDataUrl ? b.measureImageBox(f.imageDataUrl, imgColW, 120) : { w: 0, h: 0 };
+  const imgBox = f.imageDataUrl ? b.measureImageBox(f.imageDataUrl, imgColW, maxImgH, imageScale) : { w: 0, h: 0 };
 
   const blocks: { lines: string[]; size: number; bold?: boolean; italic?: boolean; color?: [number, number, number]; gapBefore: number }[] = [];
   if (f.tag) {
@@ -246,18 +277,24 @@ function slugify(s: string): string {
 }
 
 /**
- * Builds and downloads a KDP-ready 6x9in interior PDF from the Formation
- * Library. Chapters are the unique combination of the selected chapterDims
+ * Builds (but does not save) a KDP-ready 6x9in interior PDF from the
+ * Formation Library — returns the live jsPDF document so the caller can
+ * preview it (e.g. `doc.output("blob")`) before deciding to download it.
+ * Chapters are the unique combination of the selected chapterDims
  * (Parameter/Trait/Character, any combination); within a chapter, entries
  * are grouped for display by whichever of Parameter/Character/Sub-category
  * aren't already the chapter's own dimension, printing a sub-heading only
  * when that combination changes so runs of similar formations aren't
- * captioned redundantly. One formation, image beside its trait/detail, per
- * page. A back-of-book alphabetical index by both Trait and Character
- * closes the book, every index page number individually hyperlinked, as is
- * the whole Table of Contents row for each chapter.
+ * captioned redundantly. Entries either flow continuously down each page
+ * or get one page each, per `options.layout`. A back-of-book alphabetical
+ * index by both Trait and Character closes the book, every index page
+ * number individually hyperlinked, as is the whole Table of Contents row
+ * for each chapter.
  */
-export function generateFormationsBookPdf(formations: FormationEntry[], options: BookOptions): { includedCount: number } {
+export function buildFormationsBookPdf(
+  formations: FormationEntry[],
+  options: BookOptions,
+): { doc: import("jspdf").jsPDF; includedCount: number; filename: string } {
   const chapterDims = options.chapterDims.length ? options.chapterDims : (["parameter"] as BookGroupBy[]);
   const included = filterFormationsForBook(formations, options.filter);
 
@@ -297,13 +334,18 @@ export function generateFormationsBookPdf(formations: FormationEntry[], options:
 
   const traitPages = new Map<string, number[]>();
   const charPages = new Map<string, number[]>();
+  const imageScale = Math.min(3, Math.max(0.5, options.imageSizePercent / 100));
 
   for (const label of chapterLabels) {
     b.startChapter(label, label);
     let prevSubKey = "";
     let first = true;
     for (const f of groups.get(label)!.entries) {
-      if (!first) b.addPage();
+      if (options.layout === "onePerPage") {
+        if (!first) b.addPage();
+      } else if (!first) {
+        b.divider();
+      }
       first = false;
 
       const subKey = subDims.map((d) => subheadingValue(f, d)).join("");
@@ -317,7 +359,7 @@ export function generateFormationsBookPdf(formations: FormationEntry[], options:
         prevSubKey = subKey;
       }
 
-      drawEntry(b, f);
+      drawEntry(b, f, imageScale);
       const page = b.pageNumber;
       const traitKey = f.trait.trim();
       if (traitKey) traitPages.set(traitKey, [...(traitPages.get(traitKey) ?? []), page]);
@@ -347,12 +389,12 @@ export function generateFormationsBookPdf(formations: FormationEntry[], options:
     b.indexRow(term, charPages.get(term)!);
   }
 
-  if (options.coverBackDataUrl) b.addCoverPage(options.coverBackDataUrl);
+  if (options.coverBackDataUrl) b.addCoverPage(options.coverBackDataUrl, options.barcodeDataUrl);
 
   b.finalize();
   const dateStr = new Date().toISOString().slice(0, 10);
-  b.save(`${slugify(title)}-${dateStr}.pdf`);
+  const filename = `${slugify(title)}-${dateStr}.pdf`;
 
-  return { includedCount: included.length };
+  return { doc: b.doc, includedCount: included.length, filename };
 }
 

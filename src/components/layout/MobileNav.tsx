@@ -7,6 +7,7 @@ function isSectionEnabled(section: PrimarySection, ctx: ReturnType<typeof useWor
   switch (section) {
     case "upload":
     case "formations":
+    case "bookPdf":
       return true;
     case "prepare":
     case "quality":

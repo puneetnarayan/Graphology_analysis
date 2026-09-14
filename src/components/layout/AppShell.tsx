@@ -1,6 +1,7 @@
 "use client";
 
 import { useWorkflow } from "@/state/workflowStore";
+import { useFormations } from "@/state/useFormations";
 import { Header } from "./Header";
 import { Sidebar } from "./Sidebar";
 import { MobileNav } from "./MobileNav";
@@ -10,12 +11,16 @@ import { QualityPanel } from "@/components/quality/QualityPanel";
 import { AnalysisPanel } from "@/components/analysis/AnalysisPanel";
 import { OcrPanel } from "@/components/ocr/OcrPanel";
 import { FormationsPanel } from "@/components/formations/FormationsPanel";
+import { BookExportTab } from "@/components/formations/BookExportTab";
 import { ProfilePanel } from "@/components/evidence/ProfilePanel";
 import { EvidencePanel } from "@/components/evidence/EvidencePanel";
 import { ReportPanel } from "@/components/report/ReportPanel";
 
 export function AppShell() {
   const ctx = useWorkflow();
+  // Called once here and shared via props — the Letter Formations and Book/PDF sections are
+  // separate top-level pages but both need the same live formations list (see useFormations.ts).
+  const formationsStore = useFormations();
 
   return (
     <div className="flex min-h-screen flex-col">
@@ -37,7 +42,8 @@ export function AppShell() {
             {ctx.activeSection === "profile" && <ProfilePanel />}
             {ctx.activeSection === "evidence" && <EvidencePanel />}
             {ctx.activeSection === "report" && <ReportPanel />}
-            {ctx.activeSection === "formations" && <FormationsPanel />}
+            {ctx.activeSection === "formations" && <FormationsPanel store={formationsStore} />}
+            {ctx.activeSection === "bookPdf" && <BookExportTab store={formationsStore} />}
           </div>
         </main>
       </div>

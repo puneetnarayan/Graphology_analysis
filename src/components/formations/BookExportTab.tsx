@@ -1,15 +1,17 @@
 "use client";
 
-import { useMemo, useRef, useState, type DragEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type DragEvent } from "react";
+import type { jsPDF } from "jspdf";
 import { Card, CardTitle, CardSubtitle } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { loadImageElement, imageElementToCanvas, toAnalysisCanvas } from "@/utils/canvas";
 import type { FormationsStore } from "./FormationsPanel";
 import {
-  generateFormationsBookPdf,
+  buildFormationsBookPdf,
   filterFormationsForBook,
   type BookGroupBy,
   type BookEntryFilter,
+  type BookLayout,
 } from "@/report/formationsBookPdf";
 
 const GROUP_BY_OPTIONS: { value: BookGroupBy; label: string; hint: string }[] = [
@@ -24,7 +26,12 @@ const FILTER_OPTIONS: { value: BookEntryFilter; label: string; hint: string }[] 
   { value: "all", label: "All entries", hint: "Everything, including entries with nothing filled in yet." },
 ];
 
-/** Cover art deserves more resolution than the formation thumbnails; downscale only if truly huge. */
+const LAYOUT_OPTIONS: { value: BookLayout; label: string; hint: string }[] = [
+  { value: "continuous", label: "Continuous", hint: "Entries flow down the page, several per page where they fit — a compact reference layout." },
+  { value: "onePerPage", label: "One per page", hint: "Every formation starts a fresh page — more white space, easier to read at a glance." },
+];
+
+/** Cover/barcode art deserves more resolution than the formation thumbnails; downscale only if truly huge. */
 const MAX_COVER_DIM = 2400;
 
 async function fileToCoverDataUrl(file: File): Promise<string> {
@@ -33,7 +40,7 @@ async function fileToCoverDataUrl(file: File): Promise<string> {
   return canvas.toDataURL("image/jpeg", 0.92);
 }
 
-function CoverPicker({
+function ImagePicker({
   label,
   dataUrl,
   onChange,
@@ -103,12 +110,49 @@ function CoverPicker({
   );
 }
 
+interface Preview {
+  doc: jsPDF;
+  url: string;
+  filename: string;
+  includedCount: number;
+}
+
+function PreviewModal({ preview, onClose }: { preview: Preview; onClose: () => void }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4 py-6" role="dialog" aria-modal="true">
+      <Card className="max-w-4xl w-full max-h-[92vh] flex flex-col">
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <div>
+            <CardTitle>Preview</CardTitle>
+            <CardSubtitle>
+              {preview.includedCount} {preview.includedCount === 1 ? "entry" : "entries"} — scroll through before
+              downloading. Judge for yourself whether any upscaled images look acceptably sharp; if not, close this,
+              lower Image size, and regenerate.
+            </CardSubtitle>
+          </div>
+          <div className="flex gap-2 shrink-0">
+            <Button variant="outline" onClick={onClose}>
+              Close
+            </Button>
+            <Button onClick={() => preview.doc.save(preview.filename)}>Download PDF</Button>
+          </div>
+        </div>
+        <div className="mt-3 flex-1 min-h-[60vh] rounded-xl border border-border-soft overflow-hidden bg-surface-alt">
+          <iframe src={preview.url} title="Book PDF preview" className="w-full h-full min-h-[60vh]" />
+        </div>
+      </Card>
+    </div>
+  );
+}
+
 /**
  * Generates a KDP-ready 6x9in paperback interior PDF from the Formation
- * Library: title/copyright pages (with optional front/back cover art), a
- * hyperlinked chaptered Table of Contents, one chapter per selected
- * grouping combination, and a back-of-book index by both Trait and
- * Character. All PDF construction happens client-side in `src/report/`.
+ * Library: title/copyright pages (with optional front/back cover art and an
+ * ISBN barcode), a hyperlinked chaptered Table of Contents, one chapter per
+ * selected grouping combination, and a back-of-book index by both Trait and
+ * Character. All PDF construction happens client-side in `src/report/`; a
+ * preview modal opens before any download so pixelation, layout, and cover
+ * placement can be judged first-hand.
  */
 export function BookExportTab({ store }: { store: FormationsStore }) {
   const { formations } = store;
@@ -116,12 +160,25 @@ export function BookExportTab({ store }: { store: FormationsStore }) {
   const [author, setAuthor] = useState("");
   const [edition, setEdition] = useState("");
   const [year, setYear] = useState(String(new Date().getFullYear()));
+  const [isbn, setIsbn] = useState("");
   const [chapterDims, setChapterDims] = useState<BookGroupBy[]>(["parameter"]);
   const [filter, setFilter] = useState<BookEntryFilter>("complete");
+  const [layout, setLayout] = useState<BookLayout>("continuous");
+  const [imageSizePercent, setImageSizePercent] = useState(100);
   const [coverFront, setCoverFront] = useState<string | null>(null);
   const [coverBack, setCoverBack] = useState<string | null>(null);
+  const [barcode, setBarcode] = useState<string | null>(null);
   const [generating, setGenerating] = useState(false);
-  const [result, setResult] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [preview, setPreview] = useState<Preview | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (preview) URL.revokeObjectURL(preview.url);
+    };
+    // Only revoke on unmount / when preview itself changes below — see closePreview / handleGenerate.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const counts = useMemo(
     () => ({
@@ -143,23 +200,34 @@ export function BookExportTab({ store }: { store: FormationsStore }) {
     });
   }
 
+  function closePreview() {
+    if (preview) URL.revokeObjectURL(preview.url);
+    setPreview(null);
+  }
+
   function handleGenerate() {
     setGenerating(true);
-    setResult(null);
+    setError(null);
     try {
-      const { includedCount: n } = generateFormationsBookPdf(formations, {
+      const { doc, includedCount: n, filename } = buildFormationsBookPdf(formations, {
         title,
         author,
         edition,
         year,
+        isbn,
         chapterDims,
         filter,
+        layout,
+        imageSizePercent,
         coverFrontDataUrl: coverFront,
         coverBackDataUrl: coverBack,
+        barcodeDataUrl: barcode,
       });
-      setResult(`Generated a ${n}-entry PDF. Check your downloads.`);
+      const url = URL.createObjectURL(doc.output("blob"));
+      if (preview) URL.revokeObjectURL(preview.url);
+      setPreview({ doc, url, filename, includedCount: n });
     } catch (err) {
-      setResult(err instanceof Error ? `Could not generate the PDF: ${err.message}` : "Could not generate the PDF.");
+      setError(err instanceof Error ? `Could not generate the PDF: ${err.message}` : "Could not generate the PDF.");
     } finally {
       setGenerating(false);
     }
@@ -170,12 +238,11 @@ export function BookExportTab({ store }: { store: FormationsStore }) {
       <CardTitle>Book / PDF</CardTitle>
       <CardSubtitle>
         Turn the Formation Library into a print-ready 6&times;9in paperback interior PDF — title and copyright
-        pages, a hyperlinked Table of Contents, one chapter per grouping combination below (one formation per
-        page, image beside its trait and detail), and a back-of-book index by both Trait and Character. Margins
-        are set generously for KDP&apos;s binding gutter at any realistic page count; double-check them against
-        KDP&apos;s current spec for your final page count before uploading, and fill in the ISBN placeholder on
-        the copyright page. Images print at up to their native resolution only, never upscaled, so they stay
-        sharp instead of pixelating.
+        pages, a hyperlinked Table of Contents (every row fully clickable), one chapter per grouping combination
+        below, and a back-of-book index by both Trait and Character. Margins are set generously for KDP&apos;s
+        binding gutter at any realistic page count; double-check them against KDP&apos;s current spec for your
+        final page count before uploading. A preview opens before any download so you can judge the result
+        yourself.
       </CardSubtitle>
 
       <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -214,16 +281,27 @@ export function BookExportTab({ store }: { store: FormationsStore }) {
             className="mt-1 w-full rounded-lg border border-border-soft bg-surface px-3 py-2 text-sm h-10 focus:outline-none focus:ring-2 focus:ring-primary/30"
           />
         </label>
+        <label className="text-xs font-medium text-text-body sm:col-span-2">
+          ISBN (optional)
+          <input
+            value={isbn}
+            onChange={(e) => setIsbn(e.target.value)}
+            placeholder="e.g. 978-1-234567-89-0 — leave blank for a placeholder"
+            className="mt-1 w-full rounded-lg border border-border-soft bg-surface px-3 py-2 text-sm h-10 focus:outline-none focus:ring-2 focus:ring-primary/30"
+          />
+        </label>
       </div>
 
-      <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <CoverPicker label="Front cover" dataUrl={coverFront} onChange={setCoverFront} />
-        <CoverPicker label="Back cover" dataUrl={coverBack} onChange={setCoverBack} />
+      <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <ImagePicker label="Front cover" dataUrl={coverFront} onChange={setCoverFront} />
+        <ImagePicker label="Back cover" dataUrl={coverBack} onChange={setCoverBack} />
+        <ImagePicker label="ISBN barcode" dataUrl={barcode} onChange={setBarcode} />
       </div>
       <p className="mt-1.5 text-[11px] text-text-muted">
-        If provided, each is embedded as its own full page (front first, back last), fitted to the 6&times;9in
-        page without cropping. Sizing and print-readiness of your cover art is your own responsibility — this
-        just embeds what you upload.
+        Front/back cover art, if provided, is embedded as its own full page (front first, back last), fitted to
+        the 6&times;9in page without cropping. The barcode, if provided, is overlaid in the bottom-right corner of
+        the back cover (the conventional spot) — or shown on the copyright page if there&apos;s no back cover.
+        Sizing and print-readiness of anything you upload here is your own responsibility — this just embeds it.
       </p>
 
       <div className="mt-5">
@@ -266,6 +344,45 @@ export function BookExportTab({ store }: { store: FormationsStore }) {
         </p>
       </div>
 
+      <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div>
+          <p className="text-xs font-medium text-text-body mb-1.5">Page layout</p>
+          <div className="grid grid-cols-2 gap-2">
+            {LAYOUT_OPTIONS.map((opt) => (
+              <button
+                key={opt.value}
+                type="button"
+                onClick={() => setLayout(opt.value)}
+                className={`text-left rounded-xl border px-3 py-2 transition-colors ${
+                  layout === opt.value ? "border-primary bg-primary-softer/60" : "border-border-soft bg-surface hover:border-primary/40"
+                }`}
+              >
+                <p className="text-xs font-semibold text-text-strong">{opt.label}</p>
+                <p className="text-[11px] text-text-muted mt-0.5">{opt.hint}</p>
+              </button>
+            ))}
+          </div>
+        </div>
+        <div>
+          <label className="text-xs font-medium text-text-body">
+            Image size <span className="font-normal text-text-muted">({imageSizePercent}%)</span>
+            <input
+              type="range"
+              min={50}
+              max={250}
+              step={10}
+              value={imageSizePercent}
+              onChange={(e) => setImageSizePercent(Number(e.target.value))}
+              className="mt-2 w-full accent-primary"
+            />
+          </label>
+          <p className="text-[11px] text-text-muted mt-1">
+            100% prints each image at up to its native resolution only (sharpest). Above 100%, small images may be
+            upscaled and look softer or pixelated — use the preview to judge whether that&apos;s acceptable.
+          </p>
+        </div>
+      </div>
+
       <div className="mt-4">
         <p className="text-xs font-medium text-text-body mb-1.5">Which entries to include</p>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
@@ -291,11 +408,13 @@ export function BookExportTab({ store }: { store: FormationsStore }) {
 
       <div className="mt-5 flex items-center gap-3 flex-wrap">
         <Button onClick={handleGenerate} disabled={generating || includedCount === 0}>
-          {generating ? "Generating…" : `Generate PDF (${includedCount} ${includedCount === 1 ? "entry" : "entries"})`}
+          {generating ? "Generating…" : `Preview PDF (${includedCount} ${includedCount === 1 ? "entry" : "entries"})`}
         </Button>
         {includedCount === 0 && <p className="text-xs text-text-muted">No entries match this filter yet.</p>}
       </div>
-      {result && <p className="mt-2 text-xs text-text-muted">{result}</p>}
+      {error && <p className="mt-2 text-xs text-danger">{error}</p>}
+
+      {preview && <PreviewModal preview={preview} onClose={closePreview} />}
     </Card>
   );
 }

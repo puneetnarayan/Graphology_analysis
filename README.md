@@ -224,14 +224,15 @@ formation, paired with the trait it's said to indicate. It has three sub-tabs:
   search (matches trait text) and Tag filter chips as the Formation Library. This view is
   read-focused — to edit a formation's fields, find it in Formation Library (its search also
   matches trait text) and use Edit there.
-- **Book / PDF**: generates a print-ready 6&times;9in paperback interior PDF from the library, for
-  KDP (see below), as its own tab.
 - **Backup & Restore**: export/import and automatic-backup controls (see below), as its own tab.
 
+Generating a print-ready book from this library is its own top-level workflow section, **Book /
+PDF**, in the main sidebar right below Letter Formations (not a sub-tab of it) — see below.
+
 **Collapsible sidebar.** The workflow sidebar (Upload Sample, Image Preparation, ... Letter
-Formations) has a hamburger (☰) toggle at its top that collapses it to an icon-only rail —
-useful for giving the Letter Formations table (or any other wide content) more horizontal room.
-The preference persists across reloads in this browser (`src/components/layout/Sidebar.tsx`).
+Formations, Book / PDF) has a hamburger (☰) toggle at its top that collapses it to an icon-only
+rail — useful for giving the Letter Formations table (or any other wide content) more horizontal
+room. The preference persists across reloads in this browser (`src/components/layout/Sidebar.tsx`).
 
 **Parameter/Character split, and what happens to older entries.** Earlier versions of this
 feature had a single free-text "Category" field, which in practice often got used as a stand-in
@@ -284,9 +285,10 @@ annotated image simply *is* the formation's image from that point on.
 form and inline row editing — grow taller as their content wraps past one line, so editing never
 hides existing text behind a fixed-height box.
 
-**Book / PDF export (KDP-ready).** The **Book / PDF** sub-tab (`src/components/formations/BookExportTab.tsx`,
-building on `src/report/bookPdfBuilder.ts` and `src/report/formationsBookPdf.ts`) turns the
-library into a paperback interior file sized for Amazon KDP's 6&times;9in trim:
+**Book / PDF export (KDP-ready).** Its own top-level sidebar section (not a Letter Formations
+sub-tab — `src/components/formations/BookExportTab.tsx`, building on `src/report/bookPdfBuilder.ts`
+and `src/report/formationsBookPdf.ts`), so it's reachable without drilling into the library first.
+It turns the library into a paperback interior file sized for Amazon KDP's 6&times;9in trim:
 
 - **Chapter grouping** — a multi-select: click **Parameter**, **Trait**, and/or **Character** to
   toggle each on or off (at least one always stays selected). A chapter is then built per unique
@@ -297,37 +299,48 @@ library into a paperback interior file sized for Amazon KDP's 6&times;9in trim:
   between consecutive entries, so a run of similar formations isn't re-captioned on every page.
   Entries missing a selected field land in a trailing "(No … set)" chapter rather than being
   dropped.
-- **One formation per page** — image on the left, its Trait and Detail in a column beside it
-  (with a small Tag line above). Images are only ever scaled *down* to fit that column, never
-  upscaled past their native resolution — a low-resolution source image just prints smaller and
-  stays sharp instead of being blown up and pixelated. Formation images are now stored at up to
-  1200px (`MAX_FORMATION_IMAGE_DIM` in `src/state/useFormations.ts`, raised from the original
-  400px specifically so exported pages have enough real pixels to print sharp at a reasonable
-  size) — existing lower-resolution entries aren't retroactively upscaled, so re-adding a sharper
-  source image via Edit is worth doing for older entries destined for print.
+- **Page layout** — **Continuous** (default): entries flow down each page, several per page where
+  they fit, for a compact reference layout. **One per page**: every formation starts a fresh page
+  instead, trading page count for more white space per entry. Either way it's image on the left,
+  Trait/Detail (and a Tag line) in a column beside it.
+- **Image size** — a 50%-250% slider (default 100%). At 100%, an image is only ever scaled *down*
+  to fit its column, never upscaled past its native resolution, so a low-resolution source stays
+  sharp but prints smaller. Above 100% the builder will deliberately upscale a small image to
+  print larger — the app no longer silently refuses to do this; a **preview** (see below) is where
+  you judge whether the resulting softness is acceptable. Formation images are also now stored at
+  up to 1200px (`MAX_FORMATION_IMAGE_DIM` in `src/state/useFormations.ts`, raised from the
+  original 400px) so newly saved entries have more real pixels to work with in the first place —
+  existing lower-resolution entries aren't retroactively upscaled in storage, so re-adding a
+  sharper source image via Edit is worth doing for older entries destined for print.
+- **Preview before downloading** — clicking **Preview PDF** builds the document and opens it in an
+  in-page viewer instead of downloading immediately; **Download PDF** inside that preview saves
+  the exact file you just looked at, or **Close** to adjust settings and regenerate.
 - **Entry filter** — **Complete entries only** (has an image, detail, and trait — every printed
   page carries real content), **Has an image** (detail/trait optional), or **All entries**. Live
   counts next to each option update from the current library so you can see what you'll get
   before generating.
-- **Front/back cover art (optional)** — browse or drag-and-drop an image for each; if provided,
-  it's embedded as its own full page (front first, back last), fitted to the 6&times;9in trim
-  without cropping. Sizing and print-readiness of cover art (bleed, resolution, trim marks, etc.)
-  is left entirely to you — the app only embeds what's uploaded, no validation.
-- **Edition and copyright year** — optional Edition text (e.g. "First Edition") shown on the
-  title page, and a Copyright year field defaulting to the current year, both feeding the
-  copyright page.
-- The PDF itself: a title page and a copyright page (placeholder ISBN/copyright text you fill in
-  before publishing), a **Table of Contents** whose page length is reserved to fit the actual
-  chapter list and whose *entire row* (not just the title text) is hyperlinked to that chapter, a
-  running header on every chapter page (chapter title, plus a **Contents** link back to that
-  chapter's own Contents row), and a **back-of-book Index** — alphabetical by Trait and,
-  separately, by Character — with every page number individually hyperlinked. Left/right margins
-  mirror by page (inner "gutter" vs. outer edge) so the text block sits centered once bound; the
-  gutter is sized generously enough to stay within KDP's minimum at any realistic page count, so
-  double-check it against KDP's current requirement for your book's actual final page count
-  before uploading.
+- **Front/back cover art and ISBN barcode (all optional)** — browse or drag-and-drop an image for
+  front cover, back cover, and/or an ISBN barcode. Front/back cover, if provided, is embedded as
+  its own full page (front first, back last), fitted to the 6&times;9in trim without cropping. The
+  barcode, if provided, is overlaid in the bottom-right corner of the back cover (the conventional
+  spot) — or shown on the copyright page as a fallback if there's no back cover. Sizing and
+  print-readiness of anything uploaded here (bleed, resolution, trim marks, barcode scannability,
+  etc.) is left entirely to you — the app only embeds what's uploaded, no validation.
+- **ISBN, Edition, and copyright year** — an optional ISBN text field (shown on the copyright page
+  verbatim, or a "[Add your ISBN here before publishing]" placeholder if left blank), optional
+  Edition text (e.g. "First Edition") shown on the title page, and a Copyright year field
+  defaulting to the current year — all feeding the title/copyright pages.
+- The PDF itself: a title page and a copyright page, a **Table of Contents** whose page length is
+  reserved to fit the actual chapter list and whose *entire row* (not just the title text) is
+  hyperlinked to that chapter, a running header on every chapter page (chapter title, plus a
+  **Contents** link back to that chapter's own Contents row), and a **back-of-book Index** —
+  alphabetical by Trait and, separately, by Character — with every page number individually
+  hyperlinked. Left/right margins mirror by page (inner "gutter" vs. outer edge) so the text block
+  sits centered once bound; the gutter is sized generously enough to stay within KDP's minimum at
+  any realistic page count, so double-check it against KDP's current requirement for your book's
+  actual final page count before uploading.
 - All PDF construction happens client-side in the browser (jsPDF), same as the existing Analysis
-  report — nothing is uploaded anywhere to generate it.
+  report — nothing is uploaded anywhere to generate or preview it.
 
 **Where the data lives.** Entries (including the images, downscaled to keep storage light)
 are saved to this browser's **IndexedDB** (`src/utils/formationsDb.ts`), not to any server —
