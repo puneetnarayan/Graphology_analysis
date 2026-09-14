@@ -4,7 +4,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { loadImageElement, imageElementToCanvas, toAnalysisCanvas } from "@/utils/canvas";
 import { saveBackupHandle, loadBackupHandle, clearBackupHandle } from "@/utils/fileHandleStore";
 import { dbGetAll, dbPut, dbDelete, dbClear, dbBulkPut, migrateFromLocalStorage, normalizeFormationEntry } from "@/utils/formationsDb";
-import type { FormationEntry, FormationTag } from "@/types";
+import { parseCsv, toCsv } from "@/utils/csv";
+import { FORMATION_TAGS, type FormationEntry, type FormationTag } from "@/types";
+
+const CSV_COLUMNS = ["parameter", "character", "subCategory", "detail", "trait", "tag"];
 
 /** Formation reference images are small illustrative crops, not full samples — keep them light. */
 const MAX_FORMATION_IMAGE_DIM = 400;
@@ -325,28 +328,8 @@ export function useFormations() {
     setHasUnsavedChanges(false);
   }, [formations]);
 
-  /**
-   * Restores a previously exported (or auto-backed-up) JSON file.
-   * `mode: "merge"` adds entries not already present (re-IDing any id
-   * collision so nothing existing is overwritten); `"replace"` discards the
-   * current library and adopts the file's contents exactly.
-   */
-  const importFormations = useCallback(async (file: File, mode: "merge" | "replace") => {
-    const text = await file.text();
-    const parsed = JSON.parse(text);
-    const incomingRaw: unknown[] = Array.isArray(parsed) ? parsed : Array.isArray(parsed?.formations) ? parsed.formations : null;
-    if (!incomingRaw) throw new Error("This file doesn't look like a Letter Formations backup.");
-    const incoming = incomingRaw
-      .filter(isFormationEntryLike)
-      .map((raw): FormationEntry => normalizeFormationEntry(raw).entry)
-      .map((e) => ({
-        ...e,
-        id: typeof e.id === "string" && e.id ? e.id : newId(),
-        subCategory: e.subCategory ?? "",
-        createdAt: e.createdAt ?? new Date().toISOString(),
-      }));
-    if (incoming.length === 0) throw new Error("No valid formation entries found in this file.");
-
+  /** Shared by JSON and CSV import: writes `incoming` in either merge or replace mode. */
+  const applyIncoming = useCallback(async (incoming: FormationEntry[], mode: "merge" | "replace") => {
     if (mode === "replace") {
       setFormations(incoming);
       await dbClear();
@@ -355,13 +338,117 @@ export function useFormations() {
       let deduped: FormationEntry[] = [];
       setFormations((prev) => {
         const existingIds = new Set(prev.map((f) => f.id));
-        deduped = incoming.map((e: FormationEntry) => (existingIds.has(e.id) ? { ...e, id: newId() } : e));
+        deduped = incoming.map((e) => (existingIds.has(e.id) ? { ...e, id: newId() } : e));
         return [...deduped, ...prev];
       });
       await dbBulkPut(deduped);
     }
-    return incoming.length;
+    setHasUnsavedChanges(true);
   }, []);
+
+  /**
+   * Restores a previously exported (or auto-backed-up) JSON file.
+   * `mode: "merge"` adds entries not already present (re-IDing any id
+   * collision so nothing existing is overwritten); `"replace"` discards the
+   * current library and adopts the file's contents exactly.
+   */
+  const importFormations = useCallback(
+    async (file: File, mode: "merge" | "replace") => {
+      const text = await file.text();
+      const parsed = JSON.parse(text);
+      const incomingRaw: unknown[] = Array.isArray(parsed) ? parsed : Array.isArray(parsed?.formations) ? parsed.formations : null;
+      if (!incomingRaw) throw new Error("This file doesn't look like a Letter Formations backup.");
+      const incoming = incomingRaw
+        .filter(isFormationEntryLike)
+        .map((raw): FormationEntry => normalizeFormationEntry(raw).entry)
+        .map((e) => ({
+          ...e,
+          id: typeof e.id === "string" && e.id ? e.id : newId(),
+          subCategory: e.subCategory ?? "",
+          createdAt: e.createdAt ?? new Date().toISOString(),
+        }));
+      if (incoming.length === 0) throw new Error("No valid formation entries found in this file.");
+      await applyIncoming(incoming, mode);
+      return incoming.length;
+    },
+    [applyIncoming],
+  );
+
+  /** Downloads the text fields (no images) as a CSV — a spreadsheet-friendly view/edit path. */
+  const exportFormationsCsv = useCallback(() => {
+    const rows = formations.map((f) => [f.parameter, f.character ?? "", f.subCategory, f.detail, f.trait, f.tag ?? ""]);
+    const csv = toCsv(CSV_COLUMNS, rows);
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `graphology-formations-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    setHasUnsavedChanges(false);
+  }, [formations]);
+
+  /**
+   * Imports rows from a CSV with a header row naming any of
+   * parameter/category, character, subCategory, detail, trait, tag (any
+   * order, case-insensitive; missing columns are just left blank). No image
+   * column — CSV rows land as text-only entries; add images afterward via
+   * Edit. Blank rows (nothing in any recognized column) are skipped.
+   */
+  const importFormationsFromCsv = useCallback(
+    async (file: File, mode: "merge" | "replace") => {
+      const text = await file.text();
+      const rows = parseCsv(text);
+      if (rows.length === 0) throw new Error("This CSV file is empty.");
+      const header = rows[0].map((h) => h.trim().toLowerCase());
+      const colIndex = (names: string[]) => {
+        for (const n of names) {
+          const i = header.indexOf(n);
+          if (i !== -1) return i;
+        }
+        return -1;
+      };
+      const iParameter = colIndex(["parameter", "category"]);
+      const iCharacter = colIndex(["character", "char"]);
+      const iSubCategory = colIndex(["subcategory", "sub-category", "sub category"]);
+      const iDetail = colIndex(["detail", "details"]);
+      const iTrait = colIndex(["trait"]);
+      const iTag = colIndex(["tag"]);
+
+      const cell = (row: string[], i: number) => (i >= 0 ? (row[i] ?? "").trim() : "");
+      const incoming: FormationEntry[] = [];
+      for (const row of rows.slice(1)) {
+        const parameter = cell(row, iParameter);
+        const character = cell(row, iCharacter);
+        const subCategory = cell(row, iSubCategory);
+        const detail = cell(row, iDetail);
+        const trait = cell(row, iTrait);
+        const rawTag = cell(row, iTag).toLowerCase();
+        const tag = (FORMATION_TAGS as readonly string[]).includes(rawTag) ? (rawTag as FormationTag) : undefined;
+        if (!parameter && !character && !subCategory && !detail && !trait) continue;
+        incoming.push({
+          id: newId(),
+          parameter,
+          character: character || undefined,
+          subCategory,
+          detail,
+          trait,
+          tag,
+          createdAt: new Date().toISOString(),
+        });
+      }
+      if (incoming.length === 0) {
+        throw new Error(
+          "No usable rows found. Expected a header row naming parameter/category, character, subCategory, detail, trait, and/or tag columns.",
+        );
+      }
+      await applyIncoming(incoming, mode);
+      return incoming.length;
+    },
+    [applyIncoming],
+  );
 
   return {
     formations,
@@ -373,6 +460,8 @@ export function useFormations() {
     removeFormation,
     exportFormations,
     importFormations,
+    exportFormationsCsv,
+    importFormationsFromCsv,
     autoBackup: {
       supported,
       status: autoBackupStatus,

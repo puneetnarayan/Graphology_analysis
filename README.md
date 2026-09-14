@@ -188,7 +188,10 @@ formation, paired with the trait it's said to indicate. It has three sub-tabs:
     Letter Forms, Connections, T-Bars, I-Dots, Ovals, Capitals, Punctuation, Rhythm & Speed,
     Legibility, Signature) — so a formation you save lines up with the same categories the rule
     engine itself measures, rather than an unrelated ad hoc taxonomy. An "Other…" option reveals
-    a free-text field for anything that doesn't fit.
+    a free-text field for anything that doesn't fit. Below the dropdown, up to 6 **quick-pick
+    chips** show your most-used parameters so far (most-used first) — one click sets Parameter
+    without opening the dropdown, for the common case of entering several rows about the same
+    parameter in a row.
   - **Character** — the specific letter, digit, or punctuation mark this formation illustrates
     (e.g. "t", "y", ","), when the parameter is character-specific (T-Bars, I-Dots, Ovals,
     Letter Forms, Connections, Capitals commonly are). Optional — left blank for whole-writing
@@ -255,6 +258,21 @@ and every Formation image field (adding a new one or editing an existing one's i
 a pasted image in addition to drag-and-drop and click-to-browse. Click or Tab into the drop
 area first (so it has focus), then Ctrl/Cmd+V.
 
+**Crop &amp; Highlight.** Once an image is picked/dropped/pasted (adding a new formation, or
+editing an existing one's image), a **✂ Crop / Highlight** link appears under it, opening an
+editor (`src/components/formations/ImageAnnotator.tsx`) with two tools:
+- **Crop** — drag a box over the part worth keeping, then Apply Crop, to trim the image down to
+  the relevant part of the sample.
+- **Highlight** — drag a box over exactly what the Detail field describes, then Add Highlight; a
+  semi-transparent amber box is drawn *permanently onto the saved image's pixels* marking that
+  spot, so reviewing the row later shows exactly what was meant instead of requiring you to
+  re-read the Detail text and guess which part of the image it refers to.
+
+**Reset to Original** undoes both back to the untouched picked image. **Use This Image** flattens
+crop + highlight into a single JPEG and hands it back to the same upload path as any other
+picked/dropped/pasted file — no separate "annotated image" concept or extra storage field; the
+annotated image simply *is* the formation's image from that point on.
+
 **Where the data lives.** Entries (including the images, downscaled to keep storage light)
 are saved to this browser's **IndexedDB** (`src/utils/formationsDb.ts`), not to any server —
 consistent with the rest of the app's no-backend architecture, but unlike the analyzed
@@ -275,6 +293,12 @@ removes it, which is exactly why backup exists (see below).
   reads one back, either **merging** it into what's already here (default — any id collision
   is re-issued a new id so nothing existing is overwritten) or **replacing** the library
   outright (checkbox next to Import).
+- **Export as CSV** / **Import from CSV** — covers text fields only (parameter, character,
+  sub-category, detail, trait, tag); images aren't included, so add them afterward via Edit if
+  needed. Import accepts a header row naming any of those columns, in any order and
+  case-insensitively (also recognizing `category` for parameter and `char` for character), skips
+  blank rows, and merges/replaces the same way JSON import does. Handy for bulk-editing entries
+  in a spreadsheet.
 - **Automatic backup to a file on disk** — in Chromium-based browsers (Chrome, Edge) that
   support the File System Access API, "Connect a backup file…" opens a native save dialog
   once; after that, every add or remove is written to that same file automatically (debounced

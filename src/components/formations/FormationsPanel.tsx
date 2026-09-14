@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/Badge";
 import { FORMATIONS_SUB_TABS, type FormationsSubTab } from "@/state/navigation";
 import { useFormations } from "@/state/useFormations";
 import { extractImageFileFromClipboard } from "@/utils/clipboard";
+import { ImageAnnotator } from "./ImageAnnotator";
 import { HANDWRITING_PARAMETERS, FORMATION_TAGS, FORMATION_TAG_LABELS, type FormationEntry, type FormationTag } from "@/types";
 
 type FormationsStore = ReturnType<typeof useFormations>;
@@ -107,6 +108,38 @@ function useObjectUrl(file: File | null | undefined): string | null {
   return url;
 }
 
+/**
+ * Opens the crop/highlight editor (`ImageAnnotator`) for whatever image is
+ * currently selected. Renders nothing until there's an image to edit. The
+ * annotated result comes back as a plain `File`, so it plugs straight into
+ * the same `onFile`/draft.file path as a freshly picked/dropped/pasted image.
+ */
+function AnnotateButton({ imageUrl, onSaved }: { imageUrl: string | null; onSaved: (file: File) => void }) {
+  const [open, setOpen] = useState(false);
+  if (!imageUrl) return null;
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="mt-1.5 text-xs font-medium text-primary-dark hover:underline"
+      >
+        ✂ Crop / Highlight
+      </button>
+      {open && (
+        <ImageAnnotator
+          imageUrl={imageUrl}
+          onSave={(file) => {
+            onSaved(file);
+            setOpen(false);
+          }}
+          onClose={() => setOpen(false)}
+        />
+      )}
+    </>
+  );
+}
+
 interface DraftFields {
   file: File | null;
   parameter: string;
@@ -159,7 +192,18 @@ function TagField({ value, onChange, compact = false }: { value: FormationTag | 
  * surfaces as free text automatically if the current value is an older
  * custom category that predates this list, so nothing gets silently reset.
  */
-function ParameterField({ value, onChange, compact = false }: { value: string; onChange: (v: string) => void; compact?: boolean }) {
+function ParameterField({
+  value,
+  onChange,
+  compact = false,
+  quickPicks,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  compact?: boolean;
+  /** Optional one-click chips (e.g. the parameters most used so far) rendered below the dropdown. */
+  quickPicks?: string[];
+}) {
   const isKnown = (HANDWRITING_PARAMETERS as readonly string[]).includes(value);
   const [customMode, setCustomMode] = useState(!!value && !isKnown);
 
@@ -188,26 +232,42 @@ function ParameterField({ value, onChange, compact = false }: { value: string; o
   }
 
   return (
-    <select
-      value={isKnown ? value : ""}
-      onChange={(e) => {
-        if (e.target.value === "__other__") {
-          setCustomMode(true);
-          onChange("");
-        } else {
-          onChange(e.target.value);
-        }
-      }}
-      className={`w-full rounded-lg bg-surface text-sm h-10 ${compact ? "px-2" : "border border-border-soft px-3"}`}
-    >
-      <option value="">Select a parameter…</option>
-      {HANDWRITING_PARAMETERS.map((p) => (
-        <option key={p} value={p}>
-          {p}
-        </option>
-      ))}
-      <option value="__other__">Other…</option>
-    </select>
+    <>
+      <select
+        value={isKnown ? value : ""}
+        onChange={(e) => {
+          if (e.target.value === "__other__") {
+            setCustomMode(true);
+            onChange("");
+          } else {
+            onChange(e.target.value);
+          }
+        }}
+        className={`w-full rounded-lg bg-surface text-sm h-10 ${compact ? "px-2" : "border border-border-soft px-3"}`}
+      >
+        <option value="">Select a parameter…</option>
+        {HANDWRITING_PARAMETERS.map((p) => (
+          <option key={p} value={p}>
+            {p}
+          </option>
+        ))}
+        <option value="__other__">Other…</option>
+      </select>
+      {quickPicks && quickPicks.length > 0 && (
+        <div className="mt-1.5 flex flex-wrap gap-1">
+          {quickPicks.map((p) => (
+            <button
+              key={p}
+              type="button"
+              onClick={() => onChange(p)}
+              className={`rounded-full px-2 py-0.5 text-[11px] ${value === p ? "bg-primary text-white" : "bg-surface-alt text-text-muted hover:text-text-strong"}`}
+            >
+              {p}
+            </button>
+          ))}
+        </div>
+      )}
+    </>
   );
 }
 
@@ -284,6 +344,9 @@ function FormationRow({
       <tr className="border-b border-border-soft/60 last:border-0 bg-primary-softer/60">
         <td className="py-2 px-2 align-top">
           <DropZone imageUrl={displayImageUrl} onFile={(file) => setEdit({ ...edit, file })} compact />
+          <div className="mt-1">
+            <AnnotateButton imageUrl={displayImageUrl} onSaved={(file) => setEdit({ ...edit, file })} />
+          </div>
           {f.imageDataUrl && edit.file !== null && (
             <button
               onClick={() => setEdit({ ...edit, file: null })}
@@ -389,6 +452,7 @@ function EntryForm({
   isSaving,
   error,
   subCategories,
+  quickPickParameters,
   submitLabel = "Add to Formation Library",
 }: {
   draft: DraftFields;
@@ -397,6 +461,7 @@ function EntryForm({
   isSaving: boolean;
   error: string | null;
   subCategories: string[];
+  quickPickParameters?: string[];
   submitLabel?: string;
 }) {
   const draftImageUrl = useObjectUrl(draft.file);
@@ -412,12 +477,19 @@ function EntryForm({
   return (
     <>
       <div className="grid grid-cols-1 lg:grid-cols-[220px_1fr] gap-4 items-start">
-        <DropZone imageUrl={draftImageUrl} onFile={(file) => setDraft({ ...draft, file })} />
+        <div>
+          <DropZone imageUrl={draftImageUrl} onFile={(file) => setDraft({ ...draft, file })} />
+          <AnnotateButton imageUrl={draftImageUrl} onSaved={(file) => setDraft({ ...draft, file })} />
+        </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
           <label className="text-xs font-medium text-text-body">
             Parameter
             <div className="mt-1">
-              <ParameterField value={draft.parameter} onChange={(v) => setDraft({ ...draft, parameter: v })} />
+              <ParameterField
+                value={draft.parameter}
+                onChange={(v) => setDraft({ ...draft, parameter: v })}
+                quickPicks={quickPickParameters}
+              />
             </div>
           </label>
           <label className="text-xs font-medium text-text-body">
@@ -670,9 +742,25 @@ function FormationsTable({ store }: { store: FormationsStore }) {
  * separate "add" tab — this form is always here, and whatever you add
  * appears immediately at the top of the table beneath it.
  */
+/** Up to 6 parameters, most-used first, for the one-click quick-pick chips under the Parameter dropdown. */
+function useQuickPickParameters(formations: FormationEntry[]): string[] {
+  return useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const f of formations) {
+      if (!f.parameter) continue;
+      counts.set(f.parameter, (counts.get(f.parameter) ?? 0) + 1);
+    }
+    return Array.from(counts.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 6)
+      .map(([p]) => p);
+  }, [formations]);
+}
+
 function FormationLibraryTab({ store }: { store: FormationsStore }) {
   const { formations, addFormation } = store;
   const subCategories = useSubCategoryOptions(formations);
+  const quickPickParameters = useQuickPickParameters(formations);
   const [draft, setDraft] = useState<DraftFields>(EMPTY_DRAFT);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -719,7 +807,15 @@ function FormationLibraryTab({ store }: { store: FormationsStore }) {
           the next one.
         </CardSubtitle>
         <div className="mt-4">
-          <EntryForm draft={draft} setDraft={setDraft} onSubmit={handleSubmit} isSaving={isSaving} error={error} subCategories={subCategories} />
+          <EntryForm
+            draft={draft}
+            setDraft={setDraft}
+            onSubmit={handleSubmit}
+            isSaving={isSaving}
+            error={error}
+            subCategories={subCategories}
+            quickPickParameters={quickPickParameters}
+          />
         </div>
       </Card>
 
@@ -870,17 +966,18 @@ function timeAgo(iso: string): string {
 }
 
 function BackupTab({ store }: { store: FormationsStore }) {
-  const { formations, exportFormations, importFormations, autoBackup } = store;
+  const { formations, exportFormations, importFormations, exportFormationsCsv, importFormationsFromCsv, autoBackup } = store;
   const importInputRef = useRef<HTMLInputElement>(null);
+  const importCsvInputRef = useRef<HTMLInputElement>(null);
   const [importMode, setImportMode] = useState<"merge" | "replace">("merge");
   const [importMessage, setImportMessage] = useState<string | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
 
-  async function handleImportFile(file: File) {
+  async function handleImportFile(file: File, kind: "json" | "csv") {
     setImportError(null);
     setImportMessage(null);
     try {
-      const count = await importFormations(file, importMode);
+      const count = kind === "json" ? await importFormations(file, importMode) : await importFormationsFromCsv(file, importMode);
       setImportMessage(`Imported ${count} formation${count === 1 ? "" : "s"} (${importMode === "merge" ? "merged with" : "replacing"} existing library).`);
     } catch (err) {
       setImportError(err instanceof Error ? err.message : "Could not import this file.");
@@ -925,11 +1022,33 @@ function BackupTab({ store }: { store: FormationsStore }) {
               className="hidden"
               onChange={(e) => {
                 const f = e.target.files?.[0];
-                if (f) handleImportFile(f);
+                if (f) handleImportFile(f, "json");
+                e.target.value = "";
+              }}
+            />
+            <Button variant="outline" onClick={exportFormationsCsv} disabled={formations.length === 0}>
+              Export as CSV
+            </Button>
+            <Button variant="outline" onClick={() => importCsvInputRef.current?.click()}>
+              Import from CSV
+            </Button>
+            <input
+              ref={importCsvInputRef}
+              type="file"
+              accept="text/csv,.csv"
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) handleImportFile(f, "csv");
                 e.target.value = "";
               }}
             />
           </div>
+          <p className="mt-2 text-[11px] text-text-muted">
+            CSV covers text fields only (parameter, character, sub-category, detail, trait, tag) — a header row
+            naming any of those columns, any order; no images. Handy for bulk-editing in a spreadsheet, then adding
+            images afterward via Edit. JSON is the full round-trip format, images included.
+          </p>
           <label className="mt-2 flex items-center gap-2 text-xs text-text-muted">
             <input
               type="checkbox"
