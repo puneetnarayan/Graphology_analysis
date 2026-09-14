@@ -26,6 +26,43 @@ function formatDateDMY(iso: string): string {
 }
 
 /**
+ * Single-line-looking text field that grows taller as its content wraps past
+ * one line, so editing never hides existing text behind a fixed-height box.
+ */
+function AutoExpandField({
+  value,
+  onChange,
+  placeholder,
+  className,
+  maxLength,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+  className?: string;
+  maxLength?: number;
+}) {
+  const ref = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  }, [value]);
+  return (
+    <textarea
+      ref={ref}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      placeholder={placeholder}
+      maxLength={maxLength}
+      rows={1}
+      className={`resize-none overflow-hidden ${className ?? ""}`}
+    />
+  );
+}
+
+/**
  * Drag-drop / click-to-upload / paste-from-clipboard image picker. Used both
  * for adding a new formation and (in compact form) for replacing an existing
  * one's image inline. Click or Tab into it, then Ctrl/Cmd+V to paste.
@@ -360,34 +397,34 @@ function FormationRow({
           <ParameterField value={edit.parameter} onChange={(v) => setEdit({ ...edit, parameter: v })} compact />
         </td>
         <td className="py-2 px-2 align-top">
-          <input
+          <AutoExpandField
             value={edit.character}
-            onChange={(e) => setEdit({ ...edit, character: e.target.value })}
+            onChange={(v) => setEdit({ ...edit, character: v })}
             placeholder="Character"
             maxLength={4}
             className="w-full rounded-lg bg-surface px-2 py-1.5 text-sm"
           />
         </td>
         <td className="py-2 px-2 align-top">
-          <input
+          <AutoExpandField
             value={edit.subCategory}
-            onChange={(e) => setEdit({ ...edit, subCategory: e.target.value })}
+            onChange={(v) => setEdit({ ...edit, subCategory: v })}
             placeholder="Sub-category"
             className="w-full rounded-lg bg-surface px-2 py-1.5 text-sm"
           />
         </td>
         <td className="py-2 px-2 align-top">
-          <input
+          <AutoExpandField
             value={edit.detail}
-            onChange={(e) => setEdit({ ...edit, detail: e.target.value })}
+            onChange={(v) => setEdit({ ...edit, detail: v })}
             placeholder="Detail"
             className="w-full rounded-lg bg-surface px-2 py-1.5 text-sm"
           />
         </td>
         <td className="py-2 px-2 align-top">
-          <input
+          <AutoExpandField
             value={edit.trait}
-            onChange={(e) => setEdit({ ...edit, trait: e.target.value })}
+            onChange={(v) => setEdit({ ...edit, trait: v })}
             placeholder="Trait"
             className="w-full rounded-lg bg-surface px-2 py-1.5 text-sm"
           />
@@ -494,40 +531,57 @@ function EntryForm({
           </label>
           <label className="text-xs font-medium text-text-body">
             Character
-            <input
+            <AutoExpandField
               value={draft.character}
-              onChange={(e) => setDraft({ ...draft, character: e.target.value })}
+              onChange={(v) => setDraft({ ...draft, character: v })}
               placeholder='e.g. "t" — optional'
               maxLength={4}
-              className="mt-1 w-full rounded-lg border border-border-soft bg-surface px-3 py-2 text-sm h-10 focus:outline-none focus:ring-2 focus:ring-primary/30"
+              className="mt-1 w-full rounded-lg border border-border-soft bg-surface px-3 py-2 text-sm min-h-10 focus:outline-none focus:ring-2 focus:ring-primary/30"
             />
           </label>
           <label className="text-xs font-medium text-text-body">
             Sub-category
-            <input
+            <AutoExpandField
               value={draft.subCategory}
-              onChange={(e) => setDraft({ ...draft, subCategory: e.target.value })}
+              onChange={(v) => setDraft({ ...draft, subCategory: v })}
               placeholder="e.g. Garland"
-              list="formation-subcategories"
-              className="mt-1 w-full rounded-lg border border-border-soft bg-surface px-3 py-2 text-sm h-10 focus:outline-none focus:ring-2 focus:ring-primary/30"
+              className="mt-1 w-full rounded-lg border border-border-soft bg-surface px-3 py-2 text-sm min-h-10 focus:outline-none focus:ring-2 focus:ring-primary/30"
             />
+            {subCategories.length > 0 && (
+              <div className="mt-1.5 flex flex-wrap gap-1.5">
+                {subCategories.slice(0, 8).map((c) => (
+                  <button
+                    key={c}
+                    type="button"
+                    onClick={() => setDraft({ ...draft, subCategory: c })}
+                    className={`rounded-full px-2 py-0.5 text-[11px] font-normal border ${
+                      draft.subCategory === c
+                        ? "bg-primary text-white border-primary"
+                        : "bg-surface-alt text-text-muted border-border-soft hover:border-primary/50"
+                    }`}
+                  >
+                    {c}
+                  </button>
+                ))}
+              </div>
+            )}
           </label>
           <label className="text-xs font-medium text-text-body sm:col-span-2">
             Detail of the formation
-            <input
+            <AutoExpandField
               value={draft.detail}
-              onChange={(e) => setDraft({ ...draft, detail: e.target.value })}
+              onChange={(v) => setDraft({ ...draft, detail: v })}
               placeholder='e.g. "Wavy line — no angles, just curves"'
-              className="mt-1 w-full rounded-lg border border-border-soft bg-surface px-3 py-2 text-sm h-10 focus:outline-none focus:ring-2 focus:ring-primary/30"
+              className="mt-1 w-full rounded-lg border border-border-soft bg-surface px-3 py-2 text-sm min-h-10 focus:outline-none focus:ring-2 focus:ring-primary/30"
             />
           </label>
           <label className="text-xs font-medium text-text-body">
             Trait / personality aspect
-            <input
+            <AutoExpandField
               value={draft.trait}
-              onChange={(e) => setDraft({ ...draft, trait: e.target.value })}
+              onChange={(v) => setDraft({ ...draft, trait: v })}
               placeholder='e.g. "Diplomatic"'
-              className="mt-1 w-full rounded-lg border border-border-soft bg-surface px-3 py-2 text-sm h-10 focus:outline-none focus:ring-2 focus:ring-primary/30"
+              className="mt-1 w-full rounded-lg border border-border-soft bg-surface px-3 py-2 text-sm min-h-10 focus:outline-none focus:ring-2 focus:ring-primary/30"
             />
           </label>
           <label className="text-xs font-medium text-text-body">
@@ -538,11 +592,6 @@ function EntryForm({
           </label>
         </div>
       </div>
-      <datalist id="formation-subcategories">
-        {subCategories.map((c) => (
-          <option key={c} value={c} />
-        ))}
-      </datalist>
       {error && <p className="mt-2 text-xs text-danger">{error}</p>}
       <div className="mt-4 flex justify-end">
         <Button disabled={!canSubmit} onClick={onSubmit}>

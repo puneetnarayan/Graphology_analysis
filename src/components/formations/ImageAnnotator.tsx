@@ -14,10 +14,13 @@ interface Rect {
   h: number;
 }
 
-const MAX_DISPLAY_PX = 640;
+const DEFAULT_BOX_W = 720;
+const DEFAULT_BOX_H = 480;
 const MIN_DRAG_PX = 6;
+const MAX_SCALE = 4;
 const HIGHLIGHT_FILL = "rgba(255,176,32,0.35)";
-const HIGHLIGHT_STROKE = "rgba(196,110,20,0.95)";
+/** Only for the live drag-selection rectangle while choosing an area — not drawn onto the saved highlight itself. */
+const SELECTION_STROKE = "rgba(196,110,20,0.95)";
 
 function cloneCanvas(src: HTMLCanvasElement): HTMLCanvasElement {
   const c = document.createElement("canvas");
@@ -46,6 +49,7 @@ export function ImageAnnotator({
   onClose: () => void;
 }) {
   const displayCanvasRef = useRef<HTMLCanvasElement>(null);
+  const resizeBoxRef = useRef<HTMLDivElement>(null);
   const originalRef = useRef<HTMLCanvasElement | null>(null);
   const workingRef = useRef<HTMLCanvasElement | null>(null);
   const baseRef = useRef<HTMLCanvasElement | null>(null);
@@ -57,6 +61,7 @@ export function ImageAnnotator({
   const [mode, setMode] = useState<Mode>("crop");
   const [dragRect, setDragRect] = useState<Rect | null>(null);
   const [highlight, setHighlight] = useState<Rect | null>(null);
+  const [box, setBox] = useState({ w: DEFAULT_BOX_W, h: DEFAULT_BOX_H });
 
   useEffect(() => {
     let cancelled = false;
@@ -78,12 +83,16 @@ export function ImageAnnotator({
     };
   }, [imageUrl]);
 
-  /** Rebuilds the scaled offscreen preview (image + baked highlight) and paints it onto the visible canvas. */
+  /**
+   * Rebuilds the scaled offscreen preview (image + baked highlight, no border) and paints it
+   * onto the visible canvas. Scale is chosen to fit (never crop or distort) the image within the
+   * current resizable box — dragging the box's corner larger gives a bigger, more precise view.
+   */
   function rebuildBase() {
     const working = workingRef.current;
     const display = displayCanvasRef.current;
     if (!working || !display) return;
-    const s = Math.min(1, MAX_DISPLAY_PX / Math.max(working.width, working.height));
+    const s = Math.min(MAX_SCALE, box.w / working.width, box.h / working.height);
     scaleRef.current = s;
     const base = document.createElement("canvas");
     base.width = Math.max(1, Math.round(working.width * s));
@@ -92,10 +101,7 @@ export function ImageAnnotator({
     ctx.drawImage(working, 0, 0, base.width, base.height);
     if (highlight) {
       ctx.fillStyle = HIGHLIGHT_FILL;
-      ctx.strokeStyle = HIGHLIGHT_STROKE;
-      ctx.lineWidth = 2;
       ctx.fillRect(highlight.x * s, highlight.y * s, highlight.w * s, highlight.h * s);
-      ctx.strokeRect(highlight.x * s, highlight.y * s, highlight.w * s, highlight.h * s);
     }
     baseRef.current = base;
     display.width = base.width;
@@ -106,7 +112,22 @@ export function ImageAnnotator({
   useEffect(() => {
     if (loaded) rebuildBase();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loaded, highlight]);
+  }, [loaded, highlight, box]);
+
+  // Track the resizable box's actual size (the user drags its corner via CSS `resize`) so the
+  // image is re-scaled to fit it, proportionately — never stretched or distorted.
+  useEffect(() => {
+    const el = resizeBoxRef.current;
+    if (!el) return;
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (!entry) return;
+      const { width, height } = entry.contentRect;
+      setBox({ w: Math.max(100, width), h: Math.max(100, height) });
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
 
   function paintWithOverlay(rect: Rect | null) {
     const base = baseRef.current;
@@ -117,7 +138,7 @@ export function ImageAnnotator({
     ctx.drawImage(base, 0, 0);
     if (rect) {
       ctx.save();
-      ctx.strokeStyle = mode === "crop" ? "#6e5fc4" : HIGHLIGHT_STROKE;
+      ctx.strokeStyle = mode === "crop" ? "#6e5fc4" : SELECTION_STROKE;
       ctx.lineWidth = 2;
       ctx.setLineDash([5, 4]);
       ctx.strokeRect(rect.x, rect.y, rect.w, rect.h);
@@ -203,10 +224,7 @@ export function ImageAnnotator({
     if (highlight) {
       const ctx = out.getContext("2d")!;
       ctx.fillStyle = HIGHLIGHT_FILL;
-      ctx.strokeStyle = HIGHLIGHT_STROKE;
-      ctx.lineWidth = Math.max(2, Math.round(2 / scaleRef.current));
       ctx.fillRect(highlight.x, highlight.y, highlight.w, highlight.h);
-      ctx.strokeRect(highlight.x, highlight.y, highlight.w, highlight.h);
     }
     out.toBlob(
       (blob) => {
@@ -220,11 +238,12 @@ export function ImageAnnotator({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4 py-6" role="dialog" aria-modal="true">
-      <Card className="max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+      <Card className="max-w-5xl w-full max-h-[90vh] overflow-y-auto">
         <CardTitle>Crop &amp; highlight</CardTitle>
         <CardSubtitle>
           Crop to the relevant part of the sample, and/or drag a box to highlight exactly what the Detail field
-          describes — the highlight is drawn permanently onto the saved image.
+          describes — the highlight is drawn permanently onto the saved image. Drag the box&apos;s bottom-right
+          corner to resize your working view; the image scales to fit without distorting.
         </CardSubtitle>
 
         {error && <p className="mt-3 text-sm text-danger">{error}</p>}
@@ -248,7 +267,11 @@ export function ImageAnnotator({
               </button>
             </div>
 
-            <div className="mt-3 flex justify-center bg-surface-alt rounded-xl p-2 overflow-auto">
+            <div
+              ref={resizeBoxRef}
+              className="mt-3 mx-auto flex items-center justify-center bg-surface-alt rounded-xl p-2 overflow-auto resize"
+              style={{ width: DEFAULT_BOX_W, height: DEFAULT_BOX_H, maxWidth: "100%", minWidth: 260, minHeight: 200 }}
+            >
               <canvas
                 ref={displayCanvasRef}
                 onPointerDown={handlePointerDown}
@@ -258,6 +281,9 @@ export function ImageAnnotator({
                 className="rounded-lg border border-border-soft cursor-crosshair touch-none"
               />
             </div>
+            <p className="mt-1 text-[10px] text-text-muted text-center">
+              Drag the ↘ corner of the grey box to resize your working view.
+            </p>
 
             <p className="mt-2 text-[11px] text-text-muted text-center">
               {mode === "crop" ? "Drag a box over the part to keep, then Apply Crop." : "Drag a box over the detail being described, then Add Highlight."}

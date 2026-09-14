@@ -264,14 +264,23 @@ editor (`src/components/formations/ImageAnnotator.tsx`) with two tools:
 - **Crop** — drag a box over the part worth keeping, then Apply Crop, to trim the image down to
   the relevant part of the sample.
 - **Highlight** — drag a box over exactly what the Detail field describes, then Add Highlight; a
-  semi-transparent amber box is drawn *permanently onto the saved image's pixels* marking that
-  spot, so reviewing the row later shows exactly what was meant instead of requiring you to
-  re-read the Detail text and guess which part of the image it refers to.
+  semi-transparent amber fill (no border) is drawn *permanently onto the saved image's pixels* at
+  full resolution marking that spot, so reviewing the row later shows exactly what was meant
+  instead of requiring you to re-read the Detail text and guess which part of the image it refers
+  to.
+
+The working view is a resizable box (drag its bottom-right corner) rather than a fixed size — the
+image always scales to fit it proportionately, so enlarging the box gives a bigger, more precise
+view for marking without ever stretching or distorting the image.
 
 **Reset to Original** undoes both back to the untouched picked image. **Use This Image** flattens
 crop + highlight into a single JPEG and hands it back to the same upload path as any other
 picked/dropped/pasted file — no separate "annotated image" concept or extra storage field; the
 annotated image simply *is* the formation's image from that point on.
+
+**Auto-expanding text fields.** Character, Sub-category, Detail, and Trait — in both the entry
+form and inline row editing — grow taller as their content wraps past one line, so editing never
+hides existing text behind a fixed-height box.
 
 **Where the data lives.** Entries (including the images, downscaled to keep storage light)
 are saved to this browser's **IndexedDB** (`src/utils/formationsDb.ts`), not to any server —
