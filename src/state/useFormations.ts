@@ -3,34 +3,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { loadImageElement, imageElementToCanvas, toAnalysisCanvas } from "@/utils/canvas";
 import { saveBackupHandle, loadBackupHandle, clearBackupHandle } from "@/utils/fileHandleStore";
+import { dbGetAll, dbPut, dbDelete, dbClear, dbBulkPut, migrateFromLocalStorage } from "@/utils/formationsDb";
 import type { FormationEntry } from "@/types";
 
-const STORAGE_KEY = "graphology_formations_v1";
 /** Formation reference images are small illustrative crops, not full samples — keep them light. */
 const MAX_FORMATION_IMAGE_DIM = 400;
 /** Wait for a quiet moment after the last change before writing the auto-backup file. */
 const AUTO_BACKUP_DEBOUNCE_MS = 800;
-
-function readFromStorage(): FormationEntry[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-}
-
-function writeToStorage(entries: FormationEntry[]) {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(entries));
-  } catch {
-    // Quota exceeded or storage disabled — the in-memory list still works for this session.
-  }
-}
 
 /** Downscales an uploaded image and returns it as a compact JPEG data URL for storage. */
 async function fileToStoredDataUrl(file: File): Promise<string> {
@@ -63,13 +42,17 @@ function hasAnyContent(fields: { category?: string; subCategory?: string; detail
 
 /**
  * Client-side, browser-local library of user-contributed letter-formation
- * examples (image + detail + trait). Stored in localStorage — the reference
- * images never leave the browser, same privacy guarantee as the rest of the
- * app — plus:
+ * examples (image + detail + trait). Stored in IndexedDB (`src/utils/formationsDb.ts`)
+ * — the reference images never leave the browser, same privacy guarantee as
+ * the rest of the app. IndexedDB replaced an earlier localStorage-based
+ * store (capped around 5-10MB, which a growing library of embedded images
+ * would eventually exhaust); any pre-existing localStorage library is
+ * migrated over automatically, once, the first time this loads after the
+ * update. Plus:
  *
  * - Manual export/import as a JSON file, which works in every browser and is
  *   the only real backup against clearing this browser's site data (that
- *   wipes localStorage and the auto-backup file handle together).
+ *   wipes IndexedDB and the auto-backup file handle together).
  * - Optional automatic backup to a file on disk via the File System Access
  *   API (Chromium browsers only): once granted, every change is written to
  *   that same file with no further prompts, so a manual export is never
@@ -83,12 +66,32 @@ function hasAnyContent(fields: { category?: string; subCategory?: string; detail
  * remount.
  */
 export function useFormations() {
-  // Read once, synchronously, on first client render — this app has no SSR data
-  // dependent on this list, so there's nothing to hydrate-mismatch against.
-  const [formations, setFormations] = useState<FormationEntry[]>(() => readFromStorage());
-  const [loaded] = useState(true);
+  const [formations, setFormations] = useState<FormationEntry[]>([]);
+  /** False until the initial IndexedDB read (and one-time legacy-localStorage migration) completes. */
+  const [loaded, setLoaded] = useState(false);
   /** True once something has changed since the last export/backup-file write — drives the periodic backup reminder. */
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+
+  // Load from IndexedDB on mount, migrating any pre-existing localStorage
+  // library over first (see src/utils/formationsDb.ts) — a no-op after the
+  // first successful run.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        await migrateFromLocalStorage();
+        const entries = await dbGetAll();
+        if (cancelled) return;
+        entries.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+        setFormations(entries);
+      } finally {
+        if (!cancelled) setLoaded(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const supported = typeof window !== "undefined" && typeof window.showSaveFilePicker === "function";
 
@@ -98,7 +101,6 @@ export function useFormations() {
   const [lastBackupAt, setLastBackupAt] = useState<string | null>(null);
   const handleRef = useRef<FileSystemFileHandle | null>(null);
   const backupTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const isFirstFormationsEffect = useRef(true);
 
   // On mount, see if a backup file handle was granted in a previous session.
   useEffect(() => {
@@ -138,13 +140,11 @@ export function useFormations() {
     }
   }, []);
 
-  // Debounced auto-backup: write the connected file shortly after formations change.
+  // Debounced auto-backup: write the connected file shortly after formations
+  // change. Gated on `loaded` so the initial IndexedDB read populating
+  // `formations` doesn't itself count as a change worth backing up.
   useEffect(() => {
-    if (isFirstFormationsEffect.current) {
-      isFirstFormationsEffect.current = false;
-      return;
-    }
-    if (autoBackupStatus !== "active" || !handleRef.current) return;
+    if (!loaded || autoBackupStatus !== "active" || !handleRef.current) return;
     if (backupTimerRef.current) clearTimeout(backupTimerRef.current);
     backupTimerRef.current = setTimeout(() => {
       writeBackupNow(formations);
@@ -153,7 +153,7 @@ export function useFormations() {
       if (backupTimerRef.current) clearTimeout(backupTimerRef.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [formations]);
+  }, [formations, loaded]);
 
   const enableAutoBackup = useCallback(async () => {
     if (!supported || typeof window.showSaveFilePicker !== "function") return;
@@ -227,11 +227,8 @@ export function useFormations() {
         subCategory: subCategory.trim(),
         createdAt: new Date().toISOString(),
       };
-      setFormations((prev) => {
-        const next = [entry, ...prev];
-        writeToStorage(next);
-        return next;
-      });
+      setFormations((prev) => [entry, ...prev]);
+      await dbPut(entry);
       setHasUnsavedChanges(true);
       return entry;
     },
@@ -249,10 +246,11 @@ export function useFormations() {
       patch: { file?: File | null; detail?: string; trait?: string; category?: string; subCategory?: string },
     ) => {
       const imageDataUrl = patch.file === undefined ? undefined : patch.file === null ? null : await fileToStoredDataUrl(patch.file);
-      setFormations((prev) => {
-        const next = prev.map((f) => {
+      let updated: FormationEntry | null = null;
+      setFormations((prev) =>
+        prev.map((f) => {
           if (f.id !== id) return f;
-          return {
+          updated = {
             ...f,
             ...(imageDataUrl === undefined ? {} : { imageDataUrl: imageDataUrl ?? undefined }),
             ...(patch.detail !== undefined ? { detail: patch.detail.trim() } : {}),
@@ -260,21 +258,18 @@ export function useFormations() {
             ...(patch.category !== undefined ? { category: patch.category.trim() } : {}),
             ...(patch.subCategory !== undefined ? { subCategory: patch.subCategory.trim() } : {}),
           };
-        });
-        writeToStorage(next);
-        return next;
-      });
+          return updated;
+        }),
+      );
+      if (updated) await dbPut(updated);
       setHasUnsavedChanges(true);
     },
     [],
   );
 
-  const removeFormation = useCallback((id: string) => {
-    setFormations((prev) => {
-      const next = prev.filter((f) => f.id !== id);
-      writeToStorage(next);
-      return next;
-    });
+  const removeFormation = useCallback(async (id: string) => {
+    setFormations((prev) => prev.filter((f) => f.id !== id));
+    await dbDelete(id);
     setHasUnsavedChanges(true);
   }, []);
 
@@ -318,18 +313,19 @@ export function useFormations() {
     }));
     if (incoming.length === 0) throw new Error("No valid formation entries found in this file.");
 
-    setFormations((prev) => {
-      let next: FormationEntry[];
-      if (mode === "replace") {
-        next = incoming;
-      } else {
+    if (mode === "replace") {
+      setFormations(incoming);
+      await dbClear();
+      await dbBulkPut(incoming);
+    } else {
+      let deduped: FormationEntry[] = [];
+      setFormations((prev) => {
         const existingIds = new Set(prev.map((f) => f.id));
-        const deduped = incoming.map((e: FormationEntry) => (existingIds.has(e.id) ? { ...e, id: newId() } : e));
-        next = [...deduped, ...prev];
-      }
-      writeToStorage(next);
-      return next;
-    });
+        deduped = incoming.map((e: FormationEntry) => (existingIds.has(e.id) ? { ...e, id: newId() } : e));
+        return [...deduped, ...prev];
+      });
+      await dbBulkPut(deduped);
+    }
     return incoming.length;
   }, []);
 

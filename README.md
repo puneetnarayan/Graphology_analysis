@@ -75,7 +75,7 @@ src/
   report/         Text/PDF export builders
   types/          Shared TypeScript types
   components/formations/  Letter Formations reference library (see below) — independent feature
-  state/useFormations.ts  localStorage-backed hook behind that library
+  state/useFormations.ts  IndexedDB-backed hook behind that library
 ```
 
 Heavy computation (quality assessment, segmentation, feature extraction, rule
@@ -197,7 +197,7 @@ rejected).
 **Inline editing.** Click **Edit** on any row to edit its category, sub-category, detail, and
 trait in place, and to replace or clear its image — the image cell becomes the same
 drag-drop/upload/paste picker used when adding. **Save** commits the change immediately (into
-localStorage and, if connected, the auto-backup file); **Cancel** discards it. The "Added" date
+IndexedDB and, if connected, the auto-backup file); **Cancel** discards it. The "Added" date
 is shown as dd-mm-yyyy.
 
 **Paste from clipboard.** Every image picker in the app — the main handwriting sample upload,
@@ -206,10 +206,17 @@ a pasted image in addition to drag-and-drop and click-to-browse. Click or Tab in
 area first (so it has focus), then Ctrl/Cmd+V.
 
 **Where the data lives.** Entries (including the images, downscaled to keep storage light)
-are saved to this browser's `localStorage`, not to any server — consistent with the rest of
-the app's no-backend architecture, but unlike the analyzed handwriting sample, this library
-is *intentionally* persisted across sessions/reloads so it can be built up over time. Clearing
-your browser's site data for this app removes it, which is exactly why backup exists (see below).
+are saved to this browser's **IndexedDB** (`src/utils/formationsDb.ts`), not to any server —
+consistent with the rest of the app's no-backend architecture, but unlike the analyzed
+handwriting sample, this library is *intentionally* persisted across sessions/reloads so it
+can be built up over time. IndexedDB was chosen over `localStorage` (used in an earlier
+version) specifically because its quota is typically hundreds of MB or more — practically
+unbounded at any realistic library size — versus localStorage's ~5-10MB ceiling, which a
+library of embedded images would eventually hit; any formations saved under the old
+localStorage-based version are migrated over automatically and silently the first time this
+loads after the update (`migrateFromLocalStorage` in `formationsDb.ts`), then the old copy is
+removed once the migration succeeds. Clearing your browser's site data for this app still
+removes it, which is exactly why backup exists (see below).
 
 **Backup &amp; restore.** Its own sub-tab (`src/state/useFormations.ts` backs both sub-tabs):
 
@@ -237,7 +244,7 @@ been exported or auto-backed-up yet, a popup prompts you to back up, with **Expo
 **Continue without saving** (dismiss and get asked again next interval if still unsaved). The
 interval is **15 minutes** normally, or **30 minutes** once an automatic backup file is
 connected (see above) — less urgent nagging since changes are already being written there.
-This is a nudge, not a data-loss warning — every change is already saved to localStorage
+This is a nudge, not a data-loss warning — every change is already saved to IndexedDB
 immediately; the reminder is only about the external-backup safety net described above.
 
 **Not wired into the rule engine.** This is a reference library you curate, not an input to
@@ -260,7 +267,7 @@ check or extend the app's rule library is a natural next step, not yet built.
 - Closing or refreshing the tab releases all in-memory image data for the analyzed
   handwriting sample; nothing about that sample persists across sessions. The one
   exception is the separate, opt-in **Letter Formations** library (see below), which
-  intentionally persists in this browser's localStorage since it's a personal reference
+  intentionally persists in this browser's IndexedDB since it's a personal reference
   collection you build up over time, not analysis input.
 
 ## Rule engine
