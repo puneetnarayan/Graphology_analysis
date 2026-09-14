@@ -11,6 +11,7 @@ function isSectionEnabled(section: PrimarySection, ctx: ReturnType<typeof useWor
     case "quality":
       return ctx.hasImage;
     case "analysis":
+    case "ocr":
       return ctx.accepted;
     default:
       return !!ctx.analysisReport;

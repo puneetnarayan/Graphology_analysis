@@ -13,6 +13,8 @@ function isSectionEnabled(section: PrimarySection, ctx: ReturnType<typeof useWor
       return ctx.hasImage;
     case "analysis":
       return ctx.accepted;
+    case "ocr":
+      return ctx.accepted;
     case "profile":
     case "evidence":
     case "report":
@@ -27,6 +29,7 @@ const ICONS: Record<PrimarySection, string> = {
   prepare: "⚙",
   quality: "✓",
   analysis: "▦",
+  ocr: "🔤",
   profile: "◉",
   evidence: "⊕",
   report: "≣",

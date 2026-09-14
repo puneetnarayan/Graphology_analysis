@@ -23,9 +23,23 @@ export type PrimarySection =
   | "prepare"
   | "quality"
   | "analysis"
+  | "ocr"
   | "profile"
   | "evidence"
   | "report";
+
+export type OcrSubTab = "text" | "letters" | "confidence";
+
+export interface OcrSubTabDef {
+  key: OcrSubTab;
+  label: string;
+}
+
+export const OCR_SUB_TABS: OcrSubTabDef[] = [
+  { key: "text", label: "Recognized Text" },
+  { key: "letters", label: "Per-Letter Detail" },
+  { key: "confidence", label: "Confidence & Frequency" },
+];
 
 export interface AnalysisSubTabDef {
   key: AnalysisSubTab;
@@ -59,6 +73,7 @@ export const PRIMARY_SECTIONS: { key: PrimarySection; label: string }[] = [
   { key: "prepare", label: "Image Preparation" },
   { key: "quality", label: "Scan Quality" },
   { key: "analysis", label: "Analysis" },
+  { key: "ocr", label: "Letter Recognition (OCR)" },
   { key: "profile", label: "Personality Profile" },
   { key: "evidence", label: "Evidence & Rules" },
   { key: "report", label: "Report" },

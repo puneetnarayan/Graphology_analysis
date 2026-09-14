@@ -20,6 +20,9 @@ import type { AnalysisProgressEvent } from "@/analysis/pipeline";
 import { DEFAULT_PREPROCESSING } from "@/types";
 import type { AnalysisReport, PreprocessingSettings, SampleMetadata, ScanQualityReport, ObservationSource } from "@/types";
 import type { PrimarySection, AnalysisSubTab } from "./navigation";
+import { runOcr as runOcrEngine } from "@/analysis/ocr/ocrEngine";
+import type { OcrProgressEvent } from "@/analysis/ocr/ocrEngine";
+import type { OcrResult } from "@/analysis/ocr/types";
 
 export interface ManualOverride {
   featureKey: string;
@@ -72,6 +75,11 @@ interface WorkflowState {
   autoCorrectEnabled: boolean;
   isAutoTuning: boolean;
   autoTuneComparison: AutoTuneComparison | null;
+  ocrResult: OcrResult | null;
+  isRunningOcr: boolean;
+  ocrError: string | null;
+  ocrProgress: OcrProgressEvent | null;
+  highlightedOcrCharIndex: number | null;
 }
 
 interface WorkflowActions {
@@ -92,6 +100,8 @@ interface WorkflowActions {
   setHighlightedRule: (ruleId: string | null) => void;
   goToRuleEvidence: (ruleId: string) => void;
   setLiveUpdateDelayMs: (ms: number) => void;
+  runOcr: () => Promise<void>;
+  setHighlightedOcrChar: (index: number | null) => void;
   reset: () => void;
 }
 
@@ -131,6 +141,11 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
   const [autoCorrectEnabled, setAutoCorrectEnabledState] = useState(true);
   const [isAutoTuning, setIsAutoTuning] = useState(false);
   const [autoTuneComparison, setAutoTuneComparison] = useState<AutoTuneComparison | null>(null);
+  const [ocrResult, setOcrResult] = useState<OcrResult | null>(null);
+  const [isRunningOcr, setIsRunningOcr] = useState(false);
+  const [ocrError, setOcrError] = useState<string | null>(null);
+  const [ocrProgress, setOcrProgress] = useState<OcrProgressEvent | null>(null);
+  const [highlightedOcrCharIndex, setHighlightedOcrCharIndexState] = useState<number | null>(null);
 
   const originalCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const objectUrlRef = useRef<string | null>(null);
@@ -284,6 +299,10 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
         lastConfidenceRef.current = null;
         setConfidenceTrend(null);
         setAutoTuneComparison(null);
+        setOcrResult(null);
+        setOcrError(null);
+        setOcrProgress(null);
+        setHighlightedOcrCharIndexState(null);
 
         let initialSettings = DEFAULT_PREPROCESSING;
         if (autoCorrectEnabled) {
@@ -406,6 +425,26 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
     await runFullAnalysis(preprocessing, { initial: true });
   }, [preprocessing, runFullAnalysis, scanQuality]);
 
+  const runOcr = useCallback(async () => {
+    const prepared = preparedCanvasFor(preprocessing);
+    if (!prepared) return;
+    setIsRunningOcr(true);
+    setOcrError(null);
+    setOcrProgress(null);
+    try {
+      const result = await runOcrEngine(prepared, (e) => setOcrProgress(e));
+      setOcrResult(result);
+    } catch (err) {
+      setOcrError(err instanceof Error ? err.message : "OCR recognition failed.");
+    } finally {
+      setIsRunningOcr(false);
+    }
+  }, [preparedCanvasFor, preprocessing]);
+
+  const setHighlightedOcrChar = useCallback((index: number | null) => {
+    setHighlightedOcrCharIndexState(index);
+  }, []);
+
   const setOverride = useCallback((featureKey: string, value: string) => {
     setOverrides((prev) => ({ ...prev, [featureKey]: { featureKey, value, source: "user_override" } }));
   }, []);
@@ -464,6 +503,11 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
     setError(null);
     setHighlightedRegionEvidenceId(null);
     setHighlightedRuleId(null);
+    setOcrResult(null);
+    setIsRunningOcr(false);
+    setOcrError(null);
+    setOcrProgress(null);
+    setHighlightedOcrCharIndexState(null);
     setActiveSection("upload");
   }, [clearDebounceTimer, releaseMemory]);
 
@@ -494,6 +538,11 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
       autoCorrectEnabled,
       isAutoTuning,
       autoTuneComparison,
+      ocrResult,
+      isRunningOcr,
+      ocrError,
+      ocrProgress,
+      highlightedOcrCharIndex,
       setActiveSection,
       setActiveSubTab,
       loadFile,
@@ -511,6 +560,8 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
       setHighlightedRule,
       goToRuleEvidence,
       setLiveUpdateDelayMs,
+      runOcr,
+      setHighlightedOcrChar,
       reset,
     }),
     [
@@ -538,6 +589,11 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
       autoCorrectEnabled,
       isAutoTuning,
       autoTuneComparison,
+      ocrResult,
+      isRunningOcr,
+      ocrError,
+      ocrProgress,
+      highlightedOcrCharIndex,
       loadFile,
       updatePreprocessing,
       resetPreprocessing,
@@ -552,6 +608,8 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
       setHighlightedRule,
       goToRuleEvidence,
       setLiveUpdateDelayMs,
+      runOcr,
+      setHighlightedOcrChar,
       reset,
     ],
   );

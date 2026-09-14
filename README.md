@@ -67,6 +67,7 @@ src/
   components/     UI, organized by workflow section (upload, prep, quality, analysis, evidence, report)
   state/          React context holding the end-to-end workflow state
   analysis/       Quality engine + feature extraction pipeline (pure functions, worker-safe)
+  analysis/ocr/   Tesseract.js OCR wrapper — separate from the rule-engine pipeline above
   rules/          Graphology rule engine: schema, per-category rule sets, aggregation
   config/         Centralized thresholds — no magic numbers scattered in logic
   utils/          Canvas/image/segmentation/geometry/stats primitives
@@ -126,15 +127,58 @@ that two new rules (`LOOP-PREVALENCE-001`, `STEM-PRECISION-001`) feed into trait
 
 **This is still not per-letter identification.** The engine knows a component is
 loop-bearing and sits within the x-height band; it does not know whether that component is
-an "a", "o", "e", "d" or "g" specifically. That requires OCR (see Known limitations).
+an "a", "o", "e", "d" or "g" specifically. That requires OCR — see the next section.
+
+## Letter Recognition (OCR)
+
+The **Letter Recognition (OCR)** tab (its own primary tab, separate from Analysis) runs
+real optical character recognition via [Tesseract.js](https://github.com/naptha/tesseract.js)
+— an actual reading of which letters are present, with per-character bounding boxes and
+confidence scores. This is deliberately kept apart from the shape-bucketed Analysis tabs
+above, for two reasons:
+
+- **Different question.** Analysis answers "what shape is this stroke" (loop, stem, dot) to
+  feed the deterministic graphology rule engine. OCR answers "what letter is this" — a
+  different, independent judgment. Conflating the two would let a guess about the letter's
+  identity quietly influence trait scoring, undermining the rule engine's determinism and
+  auditability.
+- **Different reliability model.** OCR confidence comes from a pretrained neural model
+  (opaque, not rule-based); the rest of this app is built around fully traceable, auditable
+  rules. Keeping OCR in its own tab keeps that boundary honest instead of blending an
+  opaque ML confidence score into the rule engine's evidence chain.
+
+What it provides, on demand (it is not run automatically — click "Run OCR on this sample"):
+
+- **Recognized Text**: the full transcription, grouped by line, click any word to highlight
+  it on the scan.
+- **Per-Letter Detail**: every recognized character with its own OCR confidence.
+- **Confidence & Frequency**: a per-letter (a-z) frequency table with mean confidence, useful
+  for spotting which letterforms this sample makes hardest to read.
+
+**How it runs, and the one privacy caveat.** Recognition runs 100% client-side via
+WebAssembly — the handwriting image is never uploaded anywhere, same guarantee as the rest
+of the app. The OCR *engine* itself (the worker script and WASM core) is self-hosted from
+`/public/tesseract` for that reason. The one exception: Tesseract's pretrained English
+language model (`eng.traineddata`, a few MB) is fetched from Tesseract's own CDN the first
+time OCR is run, then cached by the browser — this is the only network request this feature
+makes, and it carries no data about you or your image, only a one-way download of the
+pretrained model. If that fetch can't complete (offline, a restrictive firewall) within 60
+seconds, the tab shows a clear error rather than spinning forever.
+
+**Accuracy caveat.** Tesseract's English model is trained on printed and typed text, not
+handwriting; its accuracy on genuinely handwritten samples varies a lot and is generally
+lower than on print. Treat low-confidence characters (flagged in red/amber) with real
+skepticism rather than as ground truth.
 
 ## Privacy / no-storage architecture
 
 - Handwriting images are loaded as in-memory `File`/`Canvas`/`ImageData` objects and
   never leave the browser.
 - There is no backend API route, database, or file storage in this application.
-- The only network requests the app makes are for its own static assets and Google
-  Fonts; no handwriting pixel data is ever part of a network request.
+- The only network requests the app makes are for its own static assets, Google Fonts,
+  and — only if you use the Letter Recognition (OCR) tab — a one-time download of
+  Tesseract's pretrained language model from its CDN (see "Letter Recognition (OCR)").
+  No handwriting pixel data is ever part of any network request.
 - The JSON report export deliberately excludes raw image bytes — only normalized
   region coordinates (0–1 fractions) and measurements are included.
 - Closing or refreshing the tab releases all in-memory image data; nothing persists
@@ -259,10 +303,10 @@ options so Copy Report, Print and Export PDF all match what's on screen.
 
 ## Known limitations
 
-- No OCR / per-letter identification. The shape classifier above buckets components by
-  geometry (loop, zone, aspect ratio), not by which specific letter (a vs o vs e) produced
-  them. Real per-letter analysis would need a lightweight OCR pass (e.g. Tesseract.js) —
-  planned as a future iteration, not implemented here.
+- The Letter Recognition (OCR) tab's output is not integrated into the graphology rule
+  engine or trait scoring — it's a separate, independent view (see "Letter Recognition
+  (OCR)" below for why). It also needs a one-time internet connection to fetch the
+  language model; it will not work fully offline on first use.
 - PDF page rendering for uploaded PDF samples is not implemented in this release;
   JPG/PNG/WebP are supported.
 - Letter-connection style, capital-letter-specific and punctuation-specific detectors
