@@ -1104,11 +1104,11 @@ function BackupTab({ store }: { store: FormationsStore }) {
   const {
     formations,
     exportFormations,
-    backupToGithub,
     analyzeImportFile,
     commitImport,
     exportFormationsCsv,
     autoBackup,
+    githubSync,
     findLibraryDuplicates,
     removeDuplicateFormations,
   } = store;
@@ -1120,21 +1120,6 @@ function BackupTab({ store }: { store: FormationsStore }) {
   const [pendingImport, setPendingImport] = useState<{ analysis: ImportAnalysis; mode: "merge" | "replace" } | null>(null);
   const [libraryScan, setLibraryScan] = useState<LibraryDuplicateScan | null>(null);
   const [dupCheckMessage, setDupCheckMessage] = useState<string | null>(null);
-  const [githubBackupState, setGithubBackupState] = useState<"idle" | "working" | "done" | "error">("idle");
-  const [githubBackupMessage, setGithubBackupMessage] = useState<string | null>(null);
-
-  async function handleGithubBackup() {
-    setGithubBackupState("working");
-    setGithubBackupMessage(null);
-    try {
-      const { path, url } = await backupToGithub();
-      setGithubBackupState("done");
-      setGithubBackupMessage(url ? `Committed ${path}` : `Committed ${path} (no commit URL returned).`);
-    } catch (err) {
-      setGithubBackupState("error");
-      setGithubBackupMessage(err instanceof Error ? err.message : "Backup to GitHub failed.");
-    }
-  }
 
   function handleCheckDuplicates() {
     setDupCheckMessage(null);
@@ -1192,17 +1177,40 @@ function BackupTab({ store }: { store: FormationsStore }) {
     error: <Badge tone="danger">Auto-backup error</Badge>,
   }[autoBackup.status];
 
+  const githubBadge = {
+    checking: null,
+    unconfigured: null,
+    synced: <Badge tone="success">Synced to GitHub{githubSync.lastSyncedAt ? ` — ${timeAgo(githubSync.lastSyncedAt)}` : ""}</Badge>,
+    syncing: <Badge tone="neutral">Syncing to GitHub…</Badge>,
+    error: <Badge tone="danger">GitHub sync error</Badge>,
+  }[githubSync.status];
+
+  const githubConfigured = githubSync.status !== "unconfigured" && githubSync.status !== "checking";
+
   return (
     <Card>
       <div className="flex items-center justify-between flex-wrap gap-2">
         <div>
           <CardTitle>Backup &amp; Restore</CardTitle>
           <CardSubtitle>
-            {formations.length} formation{formations.length === 1 ? "" : "s"} saved in this browser. Export/import
-            work everywhere; automatic backup to a file on disk is available in Chromium browsers (Chrome, Edge).
+            {githubConfigured ? (
+              <>
+                {formations.length} formation{formations.length === 1 ? "" : "s"} — this library lives in your
+                GitHub repo (synced automatically after each change); IndexedDB in this browser is a local cache
+                for offline/fast access.
+              </>
+            ) : (
+              <>
+                {formations.length} formation{formations.length === 1 ? "" : "s"} saved in this browser. Export/import
+                work everywhere; automatic backup to a file on disk is available in Chromium browsers (Chrome, Edge).
+              </>
+            )}
           </CardSubtitle>
         </div>
-        {autoBadge}
+        <div className="flex flex-col items-end gap-1">
+          {githubBadge}
+          {autoBadge}
+        </div>
       </div>
 
       <div className="mt-3 flex items-center gap-3 flex-wrap">
@@ -1319,18 +1327,30 @@ function BackupTab({ store }: { store: FormationsStore }) {
         </div>
 
         <div className="rounded-xl bg-surface-alt px-4 py-3">
-          <p className="text-xs font-semibold text-text-strong mb-2">Backup to GitHub</p>
-          <p className="text-xs text-text-muted mb-2">
-            Commits a timestamped JSON file into this app&apos;s own <code>backups/</code> folder on GitHub, via a
-            server-side route on this deployment — needs <code>GITHUB_BACKUP_TOKEN</code>,{" "}
-            <code>GITHUB_BACKUP_OWNER</code>, and <code>GITHUB_BACKUP_REPO</code> configured (see README); if not
-            configured on this deployment, it&apos;ll say so.
-          </p>
-          <Button variant="outline" onClick={handleGithubBackup} disabled={githubBackupState === "working" || formations.length === 0}>
-            {githubBackupState === "working" ? "Backing up…" : "Backup to GitHub Now"}
-          </Button>
-          {githubBackupMessage && (
-            <p className={`mt-2 text-xs ${githubBackupState === "error" ? "text-danger" : "text-[#2f6b4d]"}`}>{githubBackupMessage}</p>
+          <p className="text-xs font-semibold text-text-strong mb-2">GitHub sync</p>
+          {githubSync.status === "checking" && <p className="text-xs text-text-muted">Checking…</p>}
+          {githubSync.status === "unconfigured" && (
+            <p className="text-xs text-text-muted">
+              Not set up on this deployment — the library stays local to this browser (left/middle). To make GitHub
+              the live source of truth (readable/writable from any device), set{" "}
+              <code>GITHUB_BACKUP_TOKEN</code>, <code>GITHUB_BACKUP_OWNER</code>, and{" "}
+              <code>GITHUB_BACKUP_REPO</code> as environment variables (see README) and redeploy.
+            </p>
+          )}
+          {(githubSync.status === "synced" || githubSync.status === "syncing") && (
+            <p className="text-xs text-text-muted">
+              Every add, edit, or remove is committed automatically a moment later — one commit updates the live
+              file and adds a new timestamped snapshot (oldest ones pruned beyond the configured count).{" "}
+              {githubSync.lastSyncedAt ? `Last synced ${timeAgo(githubSync.lastSyncedAt)}.` : ""}
+            </p>
+          )}
+          {githubSync.status === "error" && (
+            <>
+              <p className="text-xs text-danger mb-2">{githubSync.error ?? "GitHub sync failed."}</p>
+              <Button variant="outline" onClick={githubSync.retry} disabled={formations.length === 0}>
+                Retry Sync
+              </Button>
+            </>
           )}
         </div>
       </div>

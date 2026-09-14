@@ -106,58 +106,156 @@ function hasAnyContent(
 }
 
 /**
- * Client-side, browser-local library of user-contributed letter-formation
- * examples (image + detail + trait). Stored in IndexedDB (`src/utils/formationsDb.ts`)
- * — the reference images never leave the browser, same privacy guarantee as
- * the rest of the app. IndexedDB replaced an earlier localStorage-based
- * store (capped around 5-10MB, which a growing library of embedded images
- * would eventually exhaust); any pre-existing localStorage library is
- * migrated over automatically, once, the first time this loads after the
- * update. Plus:
+ * Library of user-contributed letter-formation examples (image + detail +
+ * trait). Two storage layers, depending on whether GitHub sync is
+ * configured on this deployment (`src/app/api/formations/route.ts` —
+ * GITHUB_BACKUP_TOKEN/OWNER/REPO env vars):
  *
- * - Manual export/import as a JSON file, which works in every browser and is
- *   the only real backup against clearing this browser's site data (that
- *   wipes IndexedDB and the auto-backup file handle together).
+ * - **Configured**: GitHub is canonical. On load, the current library is
+ *   fetched from the repo (`data/formations.json` by default) and that's
+ *   what's used — it wins over anything cached locally. Every change
+ *   (add/edit/remove/import) is pushed back shortly after (debounced
+ *   ~600ms), landing as one commit that updates the canonical file, adds a
+ *   new timestamped snapshot under `backups/`, and prunes old snapshots
+ *   beyond the configured keep count. IndexedDB is still written to, but
+ *   only as a local cache (offline access, faster subsequent loads) — not
+ *   the source of truth. If two devices/tabs both make changes, whichever
+ *   syncs last simply overwrites the other (no conflict resolution).
+ * - **Not configured, or unreachable**: falls back to IndexedDB
+ *   (`src/utils/formationsDb.ts`) as it worked before this existed — the
+ *   reference images never leave the browser in this mode. IndexedDB
+ *   replaced an earlier localStorage-based store (capped around 5-10MB,
+ *   which a growing library of embedded images would eventually exhaust);
+ *   any pre-existing localStorage library is migrated over automatically,
+ *   once, the first time this loads.
+ *
+ * Either way, also available:
+ * - Manual export/import as a JSON file, which works in every browser and
+ *   doesn't depend on GitHub sync being configured.
  * - Optional automatic backup to a file on disk via the File System Access
- *   API (Chromium browsers only): once granted, every change is written to
- *   that same file with no further prompts, so a manual export is never
- *   strictly required — but export/import is still there as the universal
- *   fallback where that API isn't available (Firefox, Safari) or the grant
- *   lapses.
+ *   API (Chromium browsers only) — a second, independent local safety net.
  *
  * Call this once and share the returned object — it holds the single source
  * of truth for the list; don't call it again per sub-component, or each
  * instance's local state can drift from the others until it happens to
  * remount.
  */
+export type GithubSyncStatus = "checking" | "unconfigured" | "synced" | "syncing" | "error";
+
+const GITHUB_SYNC_DEBOUNCE_MS = 600;
+
 export function useFormations() {
   const [formations, setFormations] = useState<FormationEntry[]>([]);
-  /** False until the initial IndexedDB read (and one-time legacy-localStorage migration) completes. */
+  /** False until the initial load (GitHub if configured, else IndexedDB) completes. */
   const [loaded, setLoaded] = useState(false);
   /** True once something has changed since the last export/backup-file write — drives the periodic backup reminder. */
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
 
-  // Load from IndexedDB on mount, migrating any pre-existing localStorage
-  // library over first (see src/utils/formationsDb.ts) — a no-op after the
-  // first successful run. Also normalizes any entries still in the older
-  // pre-Parameter/Character shape (see normalizeFormationEntry) and writes
-  // the normalized versions back, once.
+  const [githubSyncStatus, setGithubSyncStatus] = useState<GithubSyncStatus>("checking");
+  const [githubSyncError, setGithubSyncError] = useState<string | null>(null);
+  const [lastGithubSyncAt, setLastGithubSyncAt] = useState<string | null>(null);
+  const githubSyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** Skips the debounced sync effect's very first run (right after the initial load populates `formations`). */
+  const skipNextSyncRef = useRef(true);
+
+  /**
+   * Reads whatever's in IndexedDB, migrating any pre-existing localStorage
+   * library over first (see src/utils/formationsDb.ts) — a no-op after the
+   * first successful run — and normalizing any entries still in the older
+   * pre-Parameter/Character shape. Used as: (a) the whole load path when
+   * GitHub sync isn't configured/reachable, and (b) the seed for a
+   * first-ever push to GitHub when sync is configured but no canonical
+   * file exists there yet.
+   */
+  const loadFromIndexedDbFallback = useCallback(async (): Promise<FormationEntry[]> => {
+    await migrateFromLocalStorage();
+    const raw = await dbGetAll();
+    const changedEntries: FormationEntry[] = [];
+    const entries = raw.map((r) => {
+      const { entry, changed } = normalizeFormationEntry(r as unknown as Record<string, unknown>);
+      if (changed) changedEntries.push(entry);
+      return entry;
+    });
+    if (changedEntries.length > 0) await dbBulkPut(changedEntries);
+    entries.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+    setFormations(entries);
+    return entries;
+  }, []);
+
+  /**
+   * Pushes `entries` to /api/formations, which commits them as the
+   * canonical GitHub file plus a new timestamped snapshot (pruning old
+   * ones beyond the configured keep count) in one commit. Safe to call
+   * even when sync isn't configured — it just reports "unconfigured".
+   */
+  const syncToGithubNow = useCallback(async (entries: FormationEntry[]) => {
+    setGithubSyncStatus("syncing");
+    try {
+      const res = await fetch("/api/formations", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ formations: entries }),
+      });
+      if (res.status === 501) {
+        setGithubSyncStatus("unconfigured");
+        return;
+      }
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || `Sync failed (${res.status}).`);
+      setGithubSyncStatus("synced");
+      setGithubSyncError(null);
+      setLastGithubSyncAt(new Date().toISOString());
+      setHasUnsavedChanges(false);
+    } catch (err) {
+      setGithubSyncStatus("error");
+      setGithubSyncError(err instanceof Error ? err.message : "GitHub sync failed.");
+    }
+  }, []);
+
+  // Initial load: GitHub is canonical when sync is configured and reachable
+  // — its content wins over whatever's cached locally, and gets written
+  // through to IndexedDB as a local cache for offline/fast access. If
+  // GitHub has no canonical file yet (first time this is turned on) but
+  // IndexedDB already has a library, that local library becomes the seed
+  // and is immediately pushed up to create the canonical file. If sync
+  // isn't configured, or GitHub can't be reached, this falls back to
+  // IndexedDB alone so the app stays fully usable either way.
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        await migrateFromLocalStorage();
-        const raw = await dbGetAll();
-        const changedEntries: FormationEntry[] = [];
-        const entries = raw.map((r) => {
-          const { entry, changed } = normalizeFormationEntry(r as unknown as Record<string, unknown>);
-          if (changed) changedEntries.push(entry);
-          return entry;
-        });
-        if (changedEntries.length > 0) await dbBulkPut(changedEntries);
+        const res = await fetch("/api/formations", { method: "GET" });
+        if (res.status === 501) {
+          if (cancelled) return;
+          setGithubSyncStatus("unconfigured");
+          await loadFromIndexedDbFallback();
+          return;
+        }
+        if (!res.ok) throw new Error(`Could not read the library from GitHub (${res.status}).`);
+        const data = await res.json();
         if (cancelled) return;
-        entries.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
-        setFormations(entries);
+        if (data.exists) {
+          const entries = (data.formations as Record<string, unknown>[]).map((r) => normalizeFormationEntry(r).entry);
+          entries.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+          setFormations(entries);
+          await dbClear();
+          await dbBulkPut(entries);
+          setGithubSyncStatus("synced");
+          setLastGithubSyncAt(new Date().toISOString());
+        } else {
+          const localEntries = await loadFromIndexedDbFallback();
+          if (cancelled) return;
+          if (localEntries.length > 0) {
+            await syncToGithubNow(localEntries);
+          } else {
+            setGithubSyncStatus("synced");
+          }
+        }
+      } catch (err) {
+        if (cancelled) return;
+        setGithubSyncStatus("error");
+        setGithubSyncError(err instanceof Error ? err.message : "Could not reach GitHub sync.");
+        await loadFromIndexedDbFallback();
       } finally {
         if (!cancelled) setLoaded(true);
       }
@@ -165,7 +263,31 @@ export function useFormations() {
     return () => {
       cancelled = true;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Debounced auto-sync to GitHub: shortly after `formations` changes (and
+  // sync is configured), push the current library. Skips its first run —
+  // the one caused by the initial load itself populating `formations`,
+  // which the mount effect above already handles (including the
+  // first-ever bootstrap push) — so this only fires for actual edits.
+  useEffect(() => {
+    if (!loaded || githubSyncStatus === "unconfigured" || githubSyncStatus === "checking") return;
+    if (skipNextSyncRef.current) {
+      skipNextSyncRef.current = false;
+      return;
+    }
+    if (githubSyncTimerRef.current) clearTimeout(githubSyncTimerRef.current);
+    githubSyncTimerRef.current = setTimeout(() => {
+      syncToGithubNow(formations);
+    }, GITHUB_SYNC_DEBOUNCE_MS);
+    return () => {
+      if (githubSyncTimerRef.current) clearTimeout(githubSyncTimerRef.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [formations, loaded]);
+
+  const retryGithubSync = useCallback(() => syncToGithubNow(formations), [formations, syncToGithubNow]);
 
   const supported = typeof window !== "undefined" && typeof window.showSaveFilePicker === "function";
 
@@ -424,28 +546,6 @@ export function useFormations() {
     setHasUnsavedChanges(false);
   }, [formations]);
 
-  /**
-   * Sends the current library to this deployment's /api/backup-formations
-   * route, which commits it as a new timestamped file under backups/ in the
-   * GitHub repo (server-side only — see that route for what it needs
-   * configured). Requires the app to be running on a deployment with that
-   * configured; throws with a readable message otherwise.
-   */
-  const backupToGithub = useCallback(async (): Promise<{ path: string; url: string | null }> => {
-    const payload = { exportedAt: new Date().toISOString(), formations };
-    const res = await fetch("/api/backup-formations", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      throw new Error(data.error || `Backup failed (${res.status}).`);
-    }
-    setHasUnsavedChanges(false);
-    return { path: data.path, url: data.url ?? null };
-  }, [formations]);
-
   /** Shared by JSON and CSV import: writes `incoming` in either merge or replace mode. */
   const applyIncoming = useCallback(async (incoming: FormationEntry[], mode: "merge" | "replace") => {
     if (mode === "replace") {
@@ -594,7 +694,6 @@ export function useFormations() {
     findLibraryDuplicates,
     removeDuplicateFormations,
     exportFormations,
-    backupToGithub,
     analyzeImportFile,
     commitImport,
     exportFormationsCsv,
@@ -607,6 +706,12 @@ export function useFormations() {
       enable: enableAutoBackup,
       reconnect: reconnectAutoBackup,
       disable: disableAutoBackup,
+    },
+    githubSync: {
+      status: githubSyncStatus,
+      error: githubSyncError,
+      lastSyncedAt: lastGithubSyncAt,
+      retry: retryGithubSync,
     },
   };
 }

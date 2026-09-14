@@ -358,18 +358,23 @@ It turns the library into a paperback interior file sized for Amazon KDP's 6&tim
 - All PDF construction happens client-side in the browser (jsPDF), same as the existing Analysis
   report — nothing is uploaded anywhere to generate or preview it.
 
-**Where the data lives.** Entries (including the images, downscaled to keep storage light)
-are saved to this browser's **IndexedDB** (`src/utils/formationsDb.ts`), not to any server —
-consistent with the rest of the app's no-backend architecture, but unlike the analyzed
-handwriting sample, this library is *intentionally* persisted across sessions/reloads so it
-can be built up over time. IndexedDB was chosen over `localStorage` (used in an earlier
-version) specifically because its quota is typically hundreds of MB or more — practically
-unbounded at any realistic library size — versus localStorage's ~5-10MB ceiling, which a
-library of embedded images would eventually hit; any formations saved under the old
-localStorage-based version are migrated over automatically and silently the first time this
-loads after the update (`migrateFromLocalStorage` in `formationsDb.ts`), then the old copy is
-removed once the migration succeeds. Clearing your browser's site data for this app still
-removes it, which is exactly why backup exists (see below).
+**Where the data lives.** Depends on whether GitHub sync is configured on this deployment (see
+"GitHub sync" below):
+
+- **Not configured:** entries (including the images, downscaled to keep storage light) are saved
+  to this browser's **IndexedDB** (`src/utils/formationsDb.ts`), not to any server — consistent
+  with the rest of the app's no-backend architecture, but unlike the analyzed handwriting sample,
+  this library is *intentionally* persisted across sessions/reloads so it can be built up over
+  time. IndexedDB was chosen over `localStorage` (used in an earlier version) specifically because
+  its quota is typically hundreds of MB or more — practically unbounded at any realistic library
+  size — versus localStorage's ~5-10MB ceiling, which a library of embedded images would
+  eventually hit; any formations saved under the old localStorage-based version are migrated over
+  automatically and silently the first time this loads after the update (`migrateFromLocalStorage`
+  in `formationsDb.ts`), then the old copy is removed once the migration succeeds. Clearing your
+  browser's site data for this app still removes it, which is exactly why backup exists (see
+  below).
+- **Configured:** the library lives in your GitHub repo — IndexedDB becomes just a local cache.
+  See "GitHub sync" below for exactly how that works.
 
 **Backup &amp; restore.** Its own sub-tab (`src/state/useFormations.ts` backs both sub-tabs):
 
@@ -413,41 +418,71 @@ removes it, which is exactly why backup exists (see below).
 Both paths write the same JSON shape, so a file saved by auto-backup can also be restored via
 Import, and vice versa.
 
-**Backup to GitHub.** A third card next to the two above. This is the one exception to the app's
-otherwise fully client-side, no-backend architecture (see Privacy, below) — a browser page has no
-way to write to a git repository on its own, and doing this without a server would mean embedding
-a GitHub write credential in code that ships to anyone who opens the page, which is a real
-security hole. So this is backed by exactly one server route, `src/app/api/backup-formations/route.ts`,
-which does nothing else:
+**GitHub sync — the library can live in your GitHub repo instead of just this browser.** This is
+the one exception to the app's otherwise fully client-side, no-backend architecture (see Privacy,
+below) — a browser page has no way to read or write a git repository on its own, and doing this
+without a server would mean embedding a GitHub write credential in code that ships to anyone who
+opens the page, which is a real security hole. So this is backed by exactly one server route,
+`src/app/api/formations/route.ts`, which does nothing else. When it's configured (three
+environment variables — see below):
 
-- Clicking **Backup to GitHub Now** POSTs the current library to that route, which commits it as
-  a new timestamped file (`backups/formations-<timestamp>.json`, one new file per backup — nothing
-  is ever overwritten, so `git log` on that folder is the full backup history) to a GitHub repo,
-  using GitHub's Contents API.
-- The route needs three environment variables set on whatever deployment is running it (Vercel
-  Project Settings → Environment Variables, then redeploy for them to take effect):
-  - `GITHUB_BACKUP_TOKEN` — a GitHub token with write access to the target repo. Use a
-    **fine-grained personal access token** (GitHub → Settings → Developer settings → Personal
-    access tokens → Fine-grained tokens → Generate new token), scoped to just this one repository,
-    with **Contents: Read and write** permission and nothing else. Copy it immediately — GitHub
-    only shows it once.
-  - `GITHUB_BACKUP_OWNER` — the repo owner, e.g. `puneetnarayan`.
-  - `GITHUB_BACKUP_REPO` — the repo name, e.g. `Graphology_analysis`.
-  - Optional: `GITHUB_BACKUP_BRANCH` (defaults to `main`) and `GITHUB_BACKUP_FOLDER` (defaults to
-    `backups`).
-- If those aren't set, the button still appears but clicking it returns a clear "GitHub backup
-  isn't configured on this deployment" message rather than failing silently or crashing.
+- **GitHub becomes the source of truth.** On load, the app fetches the current library from a
+  canonical file in the repo (`data/formations.json` by default) and uses that — it wins over
+  whatever's cached in this browser. IndexedDB is still written to, but only as a local cache for
+  offline access and faster subsequent loads, not as the source of truth.
+- **Every change syncs automatically**, a moment after it happens (debounced ~600ms, so a burst of
+  edits collapses into one sync rather than one per keystroke-level change): adding, editing, or
+  removing a formation, or importing a file, all trigger it. One sync is one commit that (a)
+  updates the canonical file and (b) adds a new timestamped snapshot under `backups/` — nothing in
+  `backups/` is ever overwritten, so `git log backups/` is a full history — while (c) pruning the
+  oldest snapshots beyond a configurable count (20 by default) so that folder doesn't grow
+  forever.
+- **Conflict handling is deliberately simple: last write wins.** If you use this from two
+  devices/tabs and both make changes, whichever syncs last overwrites the other — there's no merge
+  or warning. Similarly, if this browser has an edit that hasn't synced yet (offline, or the sync
+  failed) and you then reload while GitHub is reachable, GitHub's version wins and the unsynced
+  local edit is lost. If you need stronger guarantees than that, this feature isn't there yet —
+  treat it as convenience sync for solo use across your own devices, not a true multi-writer
+  database.
+- **First time you turn this on**, if GitHub has no canonical file yet but this browser already
+  has a library in IndexedDB, that local library becomes the seed and is pushed up immediately to
+  create the canonical file — it isn't silently discarded.
+- **If GitHub sync isn't configured, or can't be reached**, the app falls back to IndexedDB alone,
+  exactly as it worked before this feature existed, with a status message explaining why.
+
+Required environment variables (Vercel Project Settings → Environment Variables, then redeploy for
+them to take effect):
+
+- `GITHUB_BACKUP_TOKEN` — a GitHub token with write access to the target repo. Use a
+  **fine-grained personal access token** (GitHub → Settings → Developer settings → Personal
+  access tokens → Fine-grained tokens → Generate new token), scoped to just this one repository,
+  with **Contents: Read and write** permission and nothing else. Copy it immediately — GitHub
+  only shows it once.
+- `GITHUB_BACKUP_OWNER` — the repo owner, e.g. `puneetnarayan`.
+- `GITHUB_BACKUP_REPO` — the repo name, e.g. `Graphology_analysis`.
+
+Optional: `GITHUB_BACKUP_BRANCH` (defaults to `main`), `GITHUB_BACKUP_DATA_PATH` (defaults to
+`data/formations.json` — the canonical file), `GITHUB_BACKUP_FOLDER` (defaults to `backups`), and
+`GITHUB_BACKUP_KEEP` (defaults to `20` — how many timestamped snapshots to retain).
+
+A few more implementation notes worth knowing:
+
+- Writes go through GitHub's **Git Data API** (blob/tree/commit/ref calls), not the simpler
+  Contents API `PUT`, because the Contents API caps an individual file write around 1MB — easy to
+  exceed once the library has a meaningful number of embedded images. The Git Data API has no such
+  limit at this scale, and lets one sync (canonical update + new snapshot + any pruned deletions)
+  land as a single commit.
 - The token lives only in the server environment and is read only inside that one route — it is
   never sent to the browser, never appears in client-side JavaScript, and the client only ever
-  talks to `/api/backup-formations` on the same origin, never to GitHub directly.
+  talks to `/api/formations` on the same origin, never to GitHub directly.
 - Worth knowing if you deploy this publicly: the route itself has no access control beyond
-  requiring a `{ formations: [...] }`-shaped JSON body, so anyone who can reach your deployed URL
-  could trigger a backup commit (of whatever formations payload *they* send, not your real data,
-  since the payload comes from their own request) — annoying at worst (junk commits in
-  `backups/`), not a data leak, since the token only grants write access to that one repo and nothing
-  the endpoint does exposes existing repo contents. If that's a concern, put the deployment behind
-  Vercel's own access controls (password protection, Vercel Authentication) rather than relying on
-  this endpoint to police itself.
+  requiring a `{ formations: [...] }`-shaped JSON body on `PUT`, so anyone who can reach your
+  deployed URL could trigger a sync commit (of whatever formations payload *they* send — this
+  would actually **overwrite your real canonical file** with their payload, since sync always wins
+  last-write-wins). This is a real risk for a publicly reachable deployment, not just an annoyance
+  — if you deploy this where strangers can reach it, put the deployment behind Vercel's own access
+  controls (password protection, Vercel Authentication) rather than relying on this endpoint to
+  police itself.
 
 **Periodic backup reminder.** While there are changes (an add, edit, or remove) that haven't
 been exported or auto-backed-up yet, a popup prompts you to back up, with **Export now** or
@@ -467,18 +502,22 @@ check or extend the app's rule library is a natural next step, not yet built.
 
 - Handwriting images are loaded as in-memory `File`/`Canvas`/`ImageData` objects and
   never leave the browser.
-- The app has exactly one backend route, `src/app/api/backup-formations/route.ts`, and it's
-  narrow and opt-in: it exists purely so the Letter Formations library's **Backup to GitHub**
-  button (see above) has somewhere to send a GitHub write credential without exposing it to the
-  browser. It's only reached if you click that button; nothing about handwriting analysis touches
-  it. Everything else in the app remains backend-free — no database, no file storage, no other
-  API route.
+- The app has exactly one backend route, `src/app/api/formations/route.ts`, and it's narrow and
+  opt-in: it exists purely so the Letter Formations library's **GitHub sync** (see above) has
+  somewhere to send a GitHub write credential without exposing it to the browser. It's only
+  reached at all when `GITHUB_BACKUP_TOKEN`/`GITHUB_BACKUP_OWNER`/`GITHUB_BACKUP_REPO` are
+  configured on the deployment; when they aren't, the client still calls it once on load, gets a
+  clean "not configured" response, and falls back to IndexedDB — no different in spirit from any
+  other network request that might fail. Nothing about handwriting analysis touches this route.
+  Everything else in the app remains backend-free — no database, no file storage, no other API
+  route.
 - The only network requests the app makes are for its own static assets, Google Fonts,
   — only if you use the Letter Recognition (OCR) tab — a one-time download of
   Tesseract's pretrained language model from its CDN (see "Letter Recognition (OCR)"), and
-  — only if you click **Backup to GitHub Now** in the Letter Formations library — a request to
-  this app's own `/api/backup-formations` route (which then talks to GitHub's API server-side).
-  No handwriting pixel data is ever part of any network request.
+  — only in the Letter Formations library, and only when GitHub sync is configured — a request to
+  this app's own `/api/formations` route on load, and again a moment after each change (that
+  route then talks to GitHub's API server-side). No handwriting pixel data is ever part of any
+  network request.
 - The JSON report export deliberately excludes raw image bytes — only normalized
   region coordinates (0–1 fractions) and measurements are included.
 - Closing or refreshing the tab releases all in-memory image data for the analyzed
