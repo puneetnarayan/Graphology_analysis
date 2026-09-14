@@ -297,7 +297,39 @@ export function PreparationPanel() {
           </Card>
 
           <Card>
-            <CardTitle>Tone & Clarity</CardTitle>
+            <div className="flex items-center justify-between gap-2">
+              <CardTitle>Tone & Clarity</CardTitle>
+              {ctx.isAutoTuning && (
+                <span className="flex items-center gap-1.5 text-[11px] text-primary-dark">
+                  <span className="h-1.5 w-1.5 rounded-full bg-primary animate-pulse" />
+                  Auto-tuning…
+                </span>
+              )}
+            </div>
+            <label className="mt-2 flex items-start gap-2 text-xs">
+              <input
+                type="checkbox"
+                className="mt-0.5"
+                checked={ctx.autoCorrectEnabled}
+                onChange={(e) => ctx.setAutoCorrectEnabled(e.target.checked)}
+              />
+              <span>
+                <span className="font-medium text-text-strong">Auto-correct for maximum confidence</span>
+                <p className="text-[11px] text-text-muted mt-0.5">
+                  Searches brightness, contrast, sharpen, noise reduction, grayscale and background normalization for
+                  the combination with the highest scan-quality score. Runs automatically when you upload a sample;
+                  best-effort local search, not a guaranteed global optimum.
+                </p>
+              </span>
+            </label>
+            <Button
+              variant="ghost"
+              className="mt-1 px-0 text-xs"
+              onClick={ctx.runAutoTune}
+              disabled={ctx.isAutoTuning}
+            >
+              {ctx.isAutoTuning ? "Tuning…" : "Re-run auto-tune now →"}
+            </Button>
             <div className="mt-3 flex flex-col gap-3">
               <Slider label="Brightness" value={p.brightness} min={-100} max={100} onChange={(v) => ctx.updatePreprocessing({ brightness: v })} />
               <Slider label="Contrast" value={p.contrast} min={-100} max={100} onChange={(v) => ctx.updatePreprocessing({ contrast: v })} />

@@ -174,6 +174,19 @@ and swaps in the new numbers once ready. The Image Preparation tab itself shows 
 live analysis confidence with a trend indicator (▲/▼ and the point delta) so you can see
 immediately whether a change you just made improved or hurt overall confidence.
 
+### Auto-correct for maximum confidence
+
+The Preparation tab's **Tone & Clarity** card has an "Auto-correct for maximum
+confidence" checkbox (default checked). When enabled it runs automatically as soon as a
+sample is uploaded — and on demand via "Re-run auto-tune now" — performing a coordinate-
+ascent local search (`src/utils/autoTune.ts`) over brightness, contrast, sharpen, noise
+reduction, grayscale and background normalization, evaluating each candidate against the
+real scan-quality composite score (`assessScanQuality`, at a smaller 700px search
+resolution so it stays fast) and keeping whichever combination scores highest. It's a
+one-pass local search over a coarse grid, not an exhaustive or globally optimal one —
+labeled as such in the UI — and it deliberately leaves rotation, crop, deskew and
+threshold alone, since those are geometry/binarization choices rather than "tone".
+
 ## Evidence traceability: click a rule, see the ink
 
 Every triggered rule and every evidence-table row is clickable (`RuleChip`,
@@ -209,6 +222,14 @@ essentially every rule, not just slant/baseline.
   headers and automatic pagination; trait cards and callouts (Contradictions,
   Limitations, Disclaimer) use hand-rolled rounded-rect primitives in the same pastel
   accent palette as the app, not the browser's default black-and-white print output.
+
+The Report tab has a **"Show calculations"** checkbox (default checked) next to the
+export buttons. Checked, the Rule Activations section (on-screen, in the copied text
+report, and in the exported PDF) shows the full `weight × confidence × sufficiency ×
+quality = effective weight` breakdown behind every rule's contribution; unchecked, it
+collapses to a single "Contribution: N" figure for readers who just want the bottom
+line. The toggle is threaded through `buildTextReport`'s and `exportReportToPdf`'s
+options so Copy Report, Print and Export PDF all match what's on screen.
 
 ## Testing
 

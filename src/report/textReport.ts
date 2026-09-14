@@ -1,6 +1,12 @@
 import type { AnalysisReport } from "@/types";
 
-export function buildTextReport(report: AnalysisReport): string {
+export interface TextReportOptions {
+  /** Include the full weight × confidence × sufficiency × quality breakdown for each rule. Default true. */
+  showCalculations?: boolean;
+}
+
+export function buildTextReport(report: AnalysisReport, options: TextReportOptions = {}): string {
+  const showCalculations = options.showCalculations ?? true;
   const lines: string[] = [];
   const add = (s = "") => lines.push(s);
 
@@ -38,6 +44,19 @@ export function buildTextReport(report: AnalysisReport): string {
       for (const [mk, mv] of Object.entries(f.measurement as Record<string, unknown>)) {
         add(`    ${mk}: ${String(mv)}`);
       }
+    }
+  }
+  add("");
+
+  add("--- RULE ACTIVATIONS ---");
+  for (const r of report.ruleActivations) {
+    add(`${r.ruleId}: ${r.description}`);
+    if (showCalculations) {
+      add(
+        `  weight ${r.ruleWeight.toFixed(2)} x conf ${(r.observationConfidence * 100).toFixed(0)}% x sufficiency ${(r.sampleSufficiency * 100).toFixed(0)}% x quality ${(r.imageQuality * 100).toFixed(0)}% = ${r.effectiveWeight.toFixed(2)}`,
+      );
+    } else {
+      add(`  Contribution: ${r.effectiveWeight.toFixed(2)}`);
     }
   }
   add("");

@@ -13,6 +13,7 @@ import {
 import { loadImageElement, imageElementToCanvas, toAnalysisCanvas, get2dContext } from "@/utils/canvas";
 import { applyPreprocessing } from "@/utils/preprocess";
 import { assessScanQuality } from "@/analysis/quality/qualityEngine";
+import { autoTuneToneForQuality } from "@/utils/autoTune";
 import { runAnalysisInWorker } from "@/utils/runAnalysis";
 import { ANALYSIS_SETTINGS } from "@/config/analysisSettings";
 import type { AnalysisProgressEvent } from "@/analysis/pipeline";
@@ -61,6 +62,8 @@ interface WorkflowState {
   highlightedRuleId: string | null;
   liveUpdateDelayMs: number;
   confidenceTrend: ConfidenceTrend | null;
+  autoCorrectEnabled: boolean;
+  isAutoTuning: boolean;
 }
 
 interface WorkflowActions {
@@ -70,6 +73,8 @@ interface WorkflowActions {
   updatePreprocessing: (patch: Partial<PreprocessingSettings>) => void;
   resetPreprocessing: () => void;
   autoDeskew: () => void;
+  setAutoCorrectEnabled: (v: boolean) => void;
+  runAutoTune: () => Promise<void>;
   assessQuality: () => Promise<void>;
   setAnalyzeRegardless: (v: boolean) => void;
   acceptAndAnalyze: () => Promise<void>;
@@ -115,6 +120,8 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
   const [highlightedRuleId, setHighlightedRuleId] = useState<string | null>(null);
   const [liveUpdateDelayMs, setLiveUpdateDelayMsState] = useState(DEFAULT_LIVE_UPDATE_DELAY_MS);
   const [confidenceTrend, setConfidenceTrend] = useState<ConfidenceTrend | null>(null);
+  const [autoCorrectEnabled, setAutoCorrectEnabledState] = useState(true);
+  const [isAutoTuning, setIsAutoTuning] = useState(false);
 
   const originalCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const objectUrlRef = useRef<string | null>(null);
@@ -261,20 +268,31 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
         setFile(f);
         setSampleMetadata(metadata);
         setOriginalDataUrl(toAnalysisCanvas(canvas, 1000).toDataURL("image/png"));
-        setPreprocessing(DEFAULT_PREPROCESSING);
         setScanQuality(null);
         setAccepted(false);
         setAnalysisReport(null);
         setOverrides({});
         lastConfidenceRef.current = null;
         setConfidenceTrend(null);
-        recomputePreview(DEFAULT_PREPROCESSING);
+
+        let initialSettings = DEFAULT_PREPROCESSING;
+        if (autoCorrectEnabled) {
+          setIsAutoTuning(true);
+          await new Promise((r) => setTimeout(r, 0));
+          try {
+            initialSettings = autoTuneToneForQuality(canvas, DEFAULT_PREPROCESSING);
+          } finally {
+            setIsAutoTuning(false);
+          }
+        }
+        setPreprocessing(initialSettings);
+        recomputePreview(initialSettings);
         setActiveSection("prepare");
       } catch (err) {
         setError(err instanceof Error ? err.message : "Could not load this file.");
       }
     },
-    [clearDebounceTimer, recomputePreview, releaseMemory],
+    [autoCorrectEnabled, clearDebounceTimer, recomputePreview, releaseMemory],
   );
 
   const updatePreprocessing = useCallback(
@@ -294,6 +312,30 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
     recomputePreview(DEFAULT_PREPROCESSING);
     scheduleLiveUpdate(DEFAULT_PREPROCESSING);
   }, [recomputePreview, scheduleLiveUpdate]);
+
+  const runAutoTune = useCallback(async () => {
+    if (!originalCanvasRef.current) return;
+    setIsAutoTuning(true);
+    await new Promise((r) => setTimeout(r, 0));
+    try {
+      const tuned = autoTuneToneForQuality(originalCanvasRef.current, preprocessing);
+      setPreprocessing(tuned);
+      recomputePreview(tuned);
+      scheduleLiveUpdate(tuned);
+    } finally {
+      setIsAutoTuning(false);
+    }
+  }, [preprocessing, recomputePreview, scheduleLiveUpdate]);
+
+  const setAutoCorrectEnabled = useCallback(
+    (v: boolean) => {
+      setAutoCorrectEnabledState(v);
+      if (v && originalCanvasRef.current) {
+        runAutoTune();
+      }
+    },
+    [runAutoTune],
+  );
 
   const autoDeskew = useCallback(() => {
     if (!originalCanvasRef.current) return;
@@ -388,6 +430,7 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
     setOverrides({});
     setProgressEvents([]);
     setIsLiveUpdating(false);
+    setIsAutoTuning(false);
     lastConfidenceRef.current = null;
     setConfidenceTrend(null);
     setError(null);
@@ -420,12 +463,16 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
       highlightedRuleId,
       liveUpdateDelayMs,
       confidenceTrend,
+      autoCorrectEnabled,
+      isAutoTuning,
       setActiveSection,
       setActiveSubTab,
       loadFile,
       updatePreprocessing,
       resetPreprocessing,
       autoDeskew,
+      setAutoCorrectEnabled,
+      runAutoTune,
       assessQuality,
       setAnalyzeRegardless: setAnalyzeRegardlessOfQuality,
       acceptAndAnalyze,
@@ -459,10 +506,14 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
       highlightedRuleId,
       liveUpdateDelayMs,
       confidenceTrend,
+      autoCorrectEnabled,
+      isAutoTuning,
       loadFile,
       updatePreprocessing,
       resetPreprocessing,
       autoDeskew,
+      setAutoCorrectEnabled,
+      runAutoTune,
       assessQuality,
       acceptAndAnalyze,
       setOverride,

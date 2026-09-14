@@ -128,18 +128,36 @@ function drawCharacteristics(b: PdfReportBuilder, report: AnalysisReport): void 
   );
 }
 
-function drawEvidenceAndRules(b: PdfReportBuilder, report: AnalysisReport): void {
+function drawEvidenceAndRules(b: PdfReportBuilder, report: AnalysisReport, showCalculations: boolean): void {
   b.startSection("evidence", "Evidence & Rules");
   b.paragraph(
     "Every graphology rule that fired on this sample, with the weighting that determined how much it contributed to trait scores.",
     { size: 9.5, color: COLORS.textMuted },
   );
   b.spacer(2);
-  b.table(
-    ["Rule ID", "Category", "Description", "Eff. Weight"],
-    report.ruleActivations.map((r) => [r.ruleId, r.category, r.description, r.effectiveWeight.toFixed(2)]),
-    { columnStyles: { 0: { cellWidth: 32 }, 1: { cellWidth: 24 }, 3: { cellWidth: 20 } } },
-  );
+  if (showCalculations) {
+    b.table(
+      ["Rule ID", "Description", "Calculation", "Eff. Weight"],
+      report.ruleActivations.map((r) => [
+        r.ruleId,
+        r.description,
+        `${r.ruleWeight.toFixed(2)} × ${(r.observationConfidence * 100).toFixed(0)}% × ${(r.sampleSufficiency * 100).toFixed(0)}% × ${(r.imageQuality * 100).toFixed(0)}%`,
+        r.effectiveWeight.toFixed(2),
+      ]),
+      { columnStyles: { 0: { cellWidth: 28 }, 2: { cellWidth: 44 }, 3: { cellWidth: 18 } } },
+    );
+    b.paragraph("Calculation = rule weight × observation confidence × sample sufficiency × scan quality.", {
+      size: 7.5,
+      color: COLORS.textMuted,
+      italic: true,
+    });
+  } else {
+    b.table(
+      ["Rule ID", "Category", "Description", "Contribution"],
+      report.ruleActivations.map((r) => [r.ruleId, r.category, r.description, r.effectiveWeight.toFixed(2)]),
+      { columnStyles: { 0: { cellWidth: 32 }, 1: { cellWidth: 24 }, 3: { cellWidth: 22 } } },
+    );
+  }
 }
 
 function drawHandwritingPortions(b: PdfReportBuilder, report: AnalysisReport): void {
@@ -195,7 +213,17 @@ function drawDisclaimer(b: PdfReportBuilder): void {
   );
 }
 
-export function exportReportToPdf(report: AnalysisReport, previewDataUrl: string | null): void {
+export interface PdfExportOptions {
+  /** Include the rule weight × confidence × sufficiency × quality breakdown. Default true. */
+  showCalculations?: boolean;
+}
+
+export function exportReportToPdf(
+  report: AnalysisReport,
+  previewDataUrl: string | null,
+  options: PdfExportOptions = {},
+): void {
+  const showCalculations = options.showCalculations ?? true;
   const b = new PdfReportBuilder("Graphology Analysis Report");
 
   drawCover(b, report, previewDataUrl);
@@ -205,7 +233,7 @@ export function exportReportToPdf(report: AnalysisReport, previewDataUrl: string
   drawContradictions(b, report);
   drawScanQuality(b, report);
   drawCharacteristics(b, report);
-  drawEvidenceAndRules(b, report);
+  drawEvidenceAndRules(b, report, showCalculations);
   drawHandwritingPortions(b, report);
   drawLimitations(b, report);
   drawDisclaimer(b);

@@ -12,6 +12,7 @@ import { exportReportToPdf } from "@/report/pdfExport";
 export function ReportPanel() {
   const ctx = useWorkflow();
   const [copied, setCopied] = useState(false);
+  const [showCalculations, setShowCalculations] = useState(true);
 
   if (!ctx.analysisReport) {
     return (
@@ -28,7 +29,7 @@ export function ReportPanel() {
   const report = ctx.analysisReport;
 
   const handleCopy = async () => {
-    await navigator.clipboard.writeText(buildTextReport(report));
+    await navigator.clipboard.writeText(buildTextReport(report, { showCalculations }));
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
@@ -53,19 +54,29 @@ export function ReportPanel() {
           </div>
           <p className="text-sm text-text-muted mt-1">Full evidence-based graphology analysis report.</p>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <Button variant="outline" onClick={() => window.print()}>
-            Print
-          </Button>
-          <Button variant="outline" onClick={() => exportReportToPdf(report, ctx.previewDataUrl)}>
-            Export PDF
-          </Button>
-          <Button variant="outline" onClick={handleCopy}>
-            {copied ? "Copied!" : "Copy Report"}
-          </Button>
-          <Button variant="outline" onClick={handleJson}>
-            Export JSON
-          </Button>
+        <div className="flex flex-wrap items-center gap-3">
+          <label className="flex items-center gap-1.5 text-xs text-text-muted">
+            <input
+              type="checkbox"
+              checked={showCalculations}
+              onChange={(e) => setShowCalculations(e.target.checked)}
+            />
+            Show calculations
+          </label>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" onClick={() => window.print()}>
+              Print
+            </Button>
+            <Button variant="outline" onClick={() => exportReportToPdf(report, ctx.previewDataUrl, { showCalculations })}>
+              Export PDF
+            </Button>
+            <Button variant="outline" onClick={handleCopy}>
+              {copied ? "Copied!" : "Copy Report"}
+            </Button>
+            <Button variant="outline" onClick={handleJson}>
+              Export JSON
+            </Button>
+          </div>
         </div>
       </div>
 
@@ -141,6 +152,33 @@ export function ReportPanel() {
               <span className={`text-xs text-right ${f.available ? "text-text-muted" : "text-warning"}`}>
                 {f.available ? "Measured" : `Insufficient evidence`}
               </span>
+            </div>
+          ))}
+        </div>
+      </Card>
+
+      <Card>
+        <CardTitle>Rule Activations ({report.ruleActivations.length})</CardTitle>
+        <CardSubtitle>Every graphology rule that fired, and the weighting behind its contribution.</CardSubtitle>
+        <div className="mt-3 flex flex-col gap-2">
+          {report.ruleActivations.map((r) => (
+            <div key={r.ruleId} className="rounded-xl bg-surface-alt px-4 py-3 text-xs">
+              <div className="flex items-center justify-between flex-wrap gap-1">
+                <span className="font-mono font-semibold text-primary-dark">{r.ruleId}</span>
+                {showCalculations ? (
+                  <span className="text-text-muted">
+                    weight {r.ruleWeight.toFixed(2)} × conf {(r.observationConfidence * 100).toFixed(0)}% ×
+                    sufficiency {(r.sampleSufficiency * 100).toFixed(0)}% × quality {(r.imageQuality * 100).toFixed(0)}%
+                    = <strong>{r.effectiveWeight.toFixed(2)}</strong>
+                  </span>
+                ) : (
+                  <span className="text-text-muted">
+                    Contribution: <strong>{r.effectiveWeight.toFixed(2)}</strong>
+                  </span>
+                )}
+              </div>
+              <p className="mt-1 text-text-body">{r.description}</p>
+              <p className="mt-1 text-text-muted">{r.explanation}</p>
             </div>
           ))}
         </div>
