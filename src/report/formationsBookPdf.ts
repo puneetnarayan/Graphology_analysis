@@ -204,6 +204,16 @@ const MUTED_COLOR: [number, number, number] = [128, 120, 112];
 const ENTRY_BODY_SIZE = 10.5;
 
 /**
+ * Column widths are fixed regardless of the Image size setting — only how
+ * large an image is allowed to print *within* its own column changes with
+ * that setting. This keeps Detail and Trait anchored in the same place
+ * (Detail always the visual center column) no matter what Image size is
+ * chosen, instead of the whole layout shifting as the image column grows.
+ */
+const IMG_COL_FRAC = 0.3;
+const DETAIL_COL_FRAC_OF_REST = 0.6;
+
+/**
  * One formation, three columns: image (left) · Detail (center, the primary
  * readable text) · Trait (right, a short italic tagline — no "Trait:"
  * label, just the trait itself). All three are measured first, then
@@ -211,17 +221,19 @@ const ENTRY_BODY_SIZE = 10.5;
  * to a comparatively tall image doesn't look top-anchored and lopsided.
  * `imageScale` (1 = default size, native resolution only; >1 prints
  * larger, upscaling past native resolution if the source is small) comes
- * straight from the user's Image size control.
+ * straight from the user's Image size control — it only grows the image
+ * within its fixed column, never the column itself, so Detail/Trait never
+ * shift position as it changes.
  */
 function drawEntry(b: BookPdfBuilder, f: FormationEntry, imageScale: number): void {
   const gap = 5;
   const lineGap = ENTRY_BODY_SIZE * 0.52;
 
-  const imgColW = BOOK_CONTENT_W * Math.min(0.55, 0.28 * imageScale);
+  const imgColW = BOOK_CONTENT_W * IMG_COL_FRAC;
   const remW = BOOK_CONTENT_W - imgColW - gap * 2;
-  const detailColW = remW * 0.6;
+  const detailColW = remW * DETAIL_COL_FRAC_OF_REST;
   const traitColW = remW - detailColW;
-  const maxImgH = Math.min(190, 100 * imageScale);
+  const maxImgH = Math.min(220, 70 * imageScale);
 
   const imgBox = f.imageDataUrl ? b.measureImageBox(f.imageDataUrl, imgColW, maxImgH, imageScale) : { w: 0, h: 0 };
 
@@ -240,7 +252,7 @@ function drawEntry(b: BookPdfBuilder, f: FormationEntry, imageScale: number): vo
   const traitH = tagBlockH + traitLines.length * lineGap;
   const totalH = Math.max(imgBox.h, detailH, traitH, 6);
 
-  b.ensureSpace(totalH + 6);
+  b.ensureSpace(totalH + 4);
   const topY = b.y;
   const x = b.contentLeft();
 
@@ -267,7 +279,7 @@ function drawEntry(b: BookPdfBuilder, f: FormationEntry, imageScale: number): vo
     b.drawParagraphLines(traitLines, traitX, ty, { size: ENTRY_BODY_SIZE, italic: true });
   }
 
-  b.y = topY + totalH + 6;
+  b.y = topY + totalH + 4;
 }
 
 function slugify(s: string): string {
@@ -277,6 +289,114 @@ function slugify(s: string): string {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
   return slug || "formations-book";
+}
+
+const INDEX_TRAIT_TITLE = "Index by Trait";
+const INDEX_CHARACTER_TITLE = "Index by Character";
+
+function drawIndexChapter(b: BookPdfBuilder, id: string, title: string, intro: string, source: Map<string, number[]>): void {
+  b.startChapter(id, title);
+  b.paragraph(intro, { size: 8.5, italic: true, color: [128, 120, 112] });
+  b.spacer(2);
+  for (const term of Array.from(source.keys()).sort((a, c) => a.localeCompare(c, undefined, { sensitivity: "base" }))) {
+    b.indexRow(term, source.get(term)!);
+  }
+}
+
+interface RenderResult {
+  doc: import("jspdf").jsPDF;
+  totalPages: number;
+  /** The page the Index by Trait chapter started on — used to work out how many pages the two index chapters together consumed. */
+  indexTraitStartPage: number;
+  traitPages: Map<string, number[]>;
+  charPages: Map<string, number[]>;
+}
+
+/**
+ * Renders the whole book once. `indexPageMaps`, when given, means "draw the
+ * two index chapters right after the TOC, using these already-known page
+ * numbers" (a real, final render); when omitted, the index chapters are
+ * drawn at the end instead, using page numbers discovered live while
+ * rendering content chapters (used as pass 1, purely to learn where each
+ * trait/character would land, and how many pages the index chapters
+ * themselves need).
+ */
+function renderPass(
+  chapterLabels: string[],
+  groups: Map<string, { key: ChapterKey; entries: FormationEntry[] }>,
+  subDims: ("parameter" | "character" | "subCategory")[],
+  options: BookOptions,
+  title: string,
+  indexPageMaps?: { traitPages: Map<string, number[]>; charPages: Map<string, number[]> },
+): RenderResult {
+  const b = new BookPdfBuilder(title);
+
+  if (options.coverFrontDataUrl) b.addCoverPage(options.coverFrontDataUrl);
+  drawTitlePage(b, { ...options, title });
+  drawCopyrightPage(b, { ...options, title });
+
+  const indexFirst = !!indexPageMaps;
+  const chapterTitles = indexFirst
+    ? [INDEX_TRAIT_TITLE, INDEX_CHARACTER_TITLE, ...chapterLabels]
+    : [...chapterLabels, INDEX_TRAIT_TITLE, INDEX_CHARACTER_TITLE];
+  b.reserveToc(chapterTitles);
+
+  const traitIntro = "Every distinct trait referenced in this book, with the page(s) where a formation illustrating it appears.";
+  const charIntro = "Every distinct character referenced in this book, with the page(s) where a formation illustrating it appears.";
+
+  let indexTraitStartPage = 0;
+  if (indexFirst) {
+    indexTraitStartPage = b.pageNumber + 1;
+    drawIndexChapter(b, "index-trait", INDEX_TRAIT_TITLE, traitIntro, indexPageMaps.traitPages);
+    drawIndexChapter(b, "index-character", INDEX_CHARACTER_TITLE, charIntro, indexPageMaps.charPages);
+  }
+
+  const traitPages = new Map<string, number[]>();
+  const charPages = new Map<string, number[]>();
+  const imageScale = Math.min(3, Math.max(0.5, options.imageSizePercent / 100));
+
+  for (const label of chapterLabels) {
+    b.startChapter(label, label);
+    let prevSubKey = "";
+    let first = true;
+    for (const f of groups.get(label)!.entries) {
+      if (options.layout === "onePerPage") {
+        if (!first) b.addPage();
+      } else if (!first) {
+        b.divider();
+      }
+      first = false;
+
+      const subKey = subDims.map((d) => subheadingValue(f, d)).join("");
+      if (subKey !== prevSubKey) {
+        const subLabel = subDims
+          .map((d) => ({ d, v: subheadingValue(f, d) }))
+          .filter((p) => p.v)
+          .map((p) => `${DIM_CAPTION_LABEL[p.d]}: ${p.d === "character" ? `"${p.v}"` : p.v}`)
+          .join("   ·   ");
+        if (subLabel) b.subheading(subLabel);
+        prevSubKey = subKey;
+      }
+
+      drawEntry(b, f, imageScale);
+      const page = b.pageNumber;
+      const traitKey = f.trait.trim();
+      if (traitKey) traitPages.set(traitKey, [...(traitPages.get(traitKey) ?? []), page]);
+      const charKey = f.character?.trim();
+      if (charKey) charPages.set(charKey, [...(charPages.get(charKey) ?? []), page]);
+    }
+  }
+
+  if (!indexFirst) {
+    indexTraitStartPage = b.pageNumber + 1;
+    drawIndexChapter(b, "index-trait", INDEX_TRAIT_TITLE, traitIntro, traitPages);
+    drawIndexChapter(b, "index-character", INDEX_CHARACTER_TITLE, charIntro, charPages);
+  }
+
+  if (options.coverBackDataUrl) b.addCoverPage(options.coverBackDataUrl, options.barcodeDataUrl);
+
+  b.finalize();
+  return { doc: b.doc, totalPages: b.pageNumber, indexTraitStartPage, traitPages, charPages };
 }
 
 /**
@@ -290,9 +410,21 @@ function slugify(s: string): string {
  * when that combination changes so runs of similar formations aren't
  * captioned redundantly. Entries either flow continuously down each page
  * or get one page each, per `options.layout`. A back-of-book alphabetical
- * index by both Trait and Character closes the book, every index page
- * number individually hyperlinked, as is the whole Table of Contents row
- * for each chapter.
+ * index by both Trait and Character comes right after the Table of
+ * Contents, every index page number individually hyperlinked (the whole
+ * row, not just the digits), as is the whole Table of Contents row for
+ * each chapter.
+ *
+ * Getting the index to appear before the content chapters it points into
+ * (rather than after them, where its page numbers would already be known)
+ * takes two render passes: pass 1 renders the book with the index at the
+ * end — as it would naturally fall out of a single top-to-bottom pass —
+ * purely to discover which page each trait/character lands on. The number
+ * of pages the two index chapters themselves take is knowable exactly from
+ * that same pass (their own start page vs. the final page count) and is
+ * independent of where they're placed, so every content-chapter page
+ * number from pass 1 shifts by that same fixed amount in the real, second
+ * pass — which is what actually gets returned.
  */
 export function buildFormationsBookPdf(
   formations: FormationEntry[],
@@ -326,78 +458,18 @@ export function buildFormationsBookPdf(
   }
 
   const title = options.title.trim() || "Letter Formations in Handwriting Analysis";
-  const b = new BookPdfBuilder(title);
 
-  if (options.coverFrontDataUrl) b.addCoverPage(options.coverFrontDataUrl);
-  drawTitlePage(b, { ...options, title });
-  drawCopyrightPage(b, { ...options, title });
+  const pass1 = renderPass(chapterLabels, groups, subDims, options, title);
+  const shift = pass1.totalPages - pass1.indexTraitStartPage + 1;
+  const shiftPages = (m: Map<string, number[]>) => new Map(Array.from(m, ([term, pages]) => [term, pages.map((p) => p + shift)] as const));
 
-  const chapterTitles = [...chapterLabels, "Index by Trait", "Index by Character"];
-  b.reserveToc(chapterTitles);
-
-  const traitPages = new Map<string, number[]>();
-  const charPages = new Map<string, number[]>();
-  const imageScale = Math.min(3, Math.max(0.5, options.imageSizePercent / 100));
-
-  for (const label of chapterLabels) {
-    b.startChapter(label, label);
-    let prevSubKey = "";
-    let first = true;
-    for (const f of groups.get(label)!.entries) {
-      if (options.layout === "onePerPage") {
-        if (!first) b.addPage();
-      } else if (!first) {
-        b.divider();
-      }
-      first = false;
-
-      const subKey = subDims.map((d) => subheadingValue(f, d)).join("");
-      if (subKey !== prevSubKey) {
-        const subLabel = subDims
-          .map((d) => ({ d, v: subheadingValue(f, d) }))
-          .filter((p) => p.v)
-          .map((p) => `${DIM_CAPTION_LABEL[p.d]}: ${p.d === "character" ? `"${p.v}"` : p.v}`)
-          .join("   ·   ");
-        if (subLabel) b.subheading(subLabel);
-        prevSubKey = subKey;
-      }
-
-      drawEntry(b, f, imageScale);
-      const page = b.pageNumber;
-      const traitKey = f.trait.trim();
-      if (traitKey) traitPages.set(traitKey, [...(traitPages.get(traitKey) ?? []), page]);
-      const charKey = f.character?.trim();
-      if (charKey) charPages.set(charKey, [...(charPages.get(charKey) ?? []), page]);
-    }
-  }
-
-  b.startChapter("index-trait", "Index by Trait");
-  b.paragraph("Every distinct trait referenced in this book, with the page(s) where a formation illustrating it appears.", {
-    size: 8.5,
-    italic: true,
-    color: [128, 120, 112],
+  const pass2 = renderPass(chapterLabels, groups, subDims, options, title, {
+    traitPages: shiftPages(pass1.traitPages),
+    charPages: shiftPages(pass1.charPages),
   });
-  b.spacer(2);
-  for (const term of Array.from(traitPages.keys()).sort((a, c) => a.localeCompare(c, undefined, { sensitivity: "base" }))) {
-    b.indexRow(term, traitPages.get(term)!);
-  }
 
-  b.startChapter("index-character", "Index by Character");
-  b.paragraph(
-    "Every distinct character referenced in this book, with the page(s) where a formation illustrating it appears.",
-    { size: 8.5, italic: true, color: [128, 120, 112] },
-  );
-  b.spacer(2);
-  for (const term of Array.from(charPages.keys()).sort((a, c) => a.localeCompare(c, undefined, { sensitivity: "base" }))) {
-    b.indexRow(term, charPages.get(term)!);
-  }
-
-  if (options.coverBackDataUrl) b.addCoverPage(options.coverBackDataUrl, options.barcodeDataUrl);
-
-  b.finalize();
   const dateStr = new Date().toISOString().slice(0, 10);
   const filename = `${slugify(title)}-${dateStr}.pdf`;
 
-  return { doc: b.doc, includedCount: included.length, filename };
+  return { doc: pass2.doc, includedCount: included.length, filename };
 }
-

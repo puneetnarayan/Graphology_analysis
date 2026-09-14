@@ -307,16 +307,20 @@ It turns the library into a paperback interior file sized for Amazon KDP's 6&tim
   "Trait:" label — just the trait itself), with a small Tag line above it. Detail and Trait share
   one uniform body text size rather than one being visually dominant over the other, and all
   three columns are vertically centered against whichever is tallest, so a short entry next to a
-  comparatively tall image doesn't look top-anchored and lopsided.
+  comparatively tall image doesn't look top-anchored and lopsided. Column widths are fixed
+  regardless of the Image size setting below — only how large an image is allowed to print
+  *within* its own column changes with that slider, so Detail stays anchored as the visual center
+  column instead of the whole layout shifting as the image grows.
 - **Image size** — a 50%-250% slider (default 100%). At 100%, an image is only ever scaled *down*
   to fit its column, never upscaled past its native resolution, so a low-resolution source stays
   sharp but prints smaller. Above 100% the builder will deliberately upscale a small image to
-  print larger — the app no longer silently refuses to do this; a **preview** (see below) is where
-  you judge whether the resulting softness is acceptable. Formation images are also now stored at
-  up to 1200px (`MAX_FORMATION_IMAGE_DIM` in `src/state/useFormations.ts`, raised from the
-  original 400px) so newly saved entries have more real pixels to work with in the first place —
-  existing lower-resolution entries aren't retroactively upscaled in storage, so re-adding a
-  sharper source image via Edit is worth doing for older entries destined for print.
+  print larger within that same fixed column — the app no longer silently refuses to do this; a
+  **preview** (see below) is where you judge whether the resulting softness is acceptable.
+  Formation images are also now stored at up to 1200px (`MAX_FORMATION_IMAGE_DIM` in
+  `src/state/useFormations.ts`, raised from the original 400px) so newly saved entries have more
+  real pixels to work with in the first place — existing lower-resolution entries aren't
+  retroactively upscaled in storage, so re-adding a sharper source image via Edit is worth doing
+  for older entries destined for print.
 - **Preview before downloading** — clicking **Preview PDF** builds the document and opens it in an
   in-page viewer instead of downloading immediately; **Download PDF** inside that preview saves
   the exact file you just looked at, or **Close** to adjust settings and regenerate.
@@ -338,9 +342,16 @@ It turns the library into a paperback interior file sized for Amazon KDP's 6&tim
 - The PDF itself: a title page and a copyright page, a **Table of Contents** whose page length is
   reserved to fit the actual chapter list and whose *entire row* (not just the title text) is
   hyperlinked to that chapter, a running header on every chapter page (chapter title, plus a
-  **Contents** link back to that chapter's own Contents row), and a **back-of-book Index** —
-  alphabetical by Trait and, separately, by Character — with every page number individually
-  hyperlinked. Left/right margins mirror by page (inner "gutter" vs. outer edge) so the text block
+  **Contents** link back to that chapter's own Contents row), and an alphabetical **Index by
+  Trait** and **Index by Character** — placed right after the Table of Contents (not at the very
+  end), each entire row hyperlinked (the term and its leader dots jump to the first page it
+  appears on; every individual page number, for a term that appears more than once, is also
+  separately clickable to that specific page). Getting the index to appear before the chapters it
+  points into takes two internal render passes — the first learns which page every trait/
+  character lands on, the second draws the real document with the index positioned up front and
+  every page number shifted to account for the index's own length — invisible to you, but worth
+  knowing if you're reading `src/report/formationsBookPdf.ts`. Left/right margins mirror by page
+  (inner "gutter" vs. outer edge) so the text block
   sits centered once bound; the gutter is sized generously enough to stay within KDP's minimum at
   any realistic page count, so double-check it against KDP's current requirement for your book's
   actual final page count before uploading.

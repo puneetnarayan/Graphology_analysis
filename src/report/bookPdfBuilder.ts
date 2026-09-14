@@ -182,19 +182,19 @@ export class BookPdfBuilder {
     const lines = this.doc.splitTextToSize(title, BOOK_CONTENT_W) as string[];
     for (const line of lines) {
       this.doc.text(line, x, this.y);
-      this.y += 8;
+      this.y += 7;
     }
     this.y += 1;
     this.setDrawColor(ACCENT);
     this.doc.setLineWidth(1);
     this.doc.line(x, this.y, x + 16, this.y);
-    this.y += 6;
+    this.y += 4;
   }
 
   /** An inline sub-heading within a chapter (not a TOC entry, just a visual grouping label). */
   subheading(text: string): void {
     if (!text) return;
-    this.ensureSpace(9);
+    this.ensureSpace(7);
     this.doc.setFont("helvetica", "bold");
     this.doc.setFontSize(10.5);
     this.setTextColor(ACCENT_DARK);
@@ -202,9 +202,9 @@ export class BookPdfBuilder {
     const lines = this.doc.splitTextToSize(text, BOOK_CONTENT_W) as string[];
     for (const line of lines) {
       this.doc.text(line, x, this.y);
-      this.y += 5.2;
+      this.y += 4.8;
     }
-    this.y += 2;
+    this.y += 1.5;
   }
 
   paragraph(
@@ -233,12 +233,12 @@ export class BookPdfBuilder {
   }
 
   divider(): void {
-    this.ensureSpace(4);
+    this.ensureSpace(3);
     this.setDrawColor(DIVIDER);
     this.doc.setLineWidth(0.3);
     const x = this.contentLeft();
     this.doc.line(x, this.y, x + BOOK_CONTENT_W, this.y);
-    this.y += 4;
+    this.y += 3;
   }
 
   /**
@@ -360,6 +360,13 @@ export class BookPdfBuilder {
       this.doc.setLineDashPattern([0.4, 1.2], 0);
       this.doc.line(leaderStart, this.y - 1, leaderEnd, this.y - 1);
       this.doc.setLineDashPattern([], 0);
+    }
+
+    // The term text + leader dots link to the first occurrence — the numbers area keeps its
+    // own per-page links below, so the whole row is clickable without either link shadowing
+    // the other (they never overlap the same x range).
+    if (uniquePages.length > 0) {
+      this.doc.link(x - 1, this.y - 3.2, cx - 2 - (x - 1), 4.2, { pageNumber: uniquePages[0] });
     }
 
     for (let i = 0; i < uniquePages.length; i += 1) {
