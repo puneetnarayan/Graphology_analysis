@@ -11,8 +11,18 @@ import type { FormationEntry } from "@/types";
 
 type FormationsStore = ReturnType<typeof useFormations>;
 
-/** How long to wait, with no unsaved-change activity, before nagging for a backup. */
+/** How long to wait, with unsaved changes pending, before nagging for a backup. */
 const BACKUP_REMINDER_INTERVAL_MS = 15 * 60 * 1000;
+/** Longer interval used once an automatic backup file is connected — there's less at stake. */
+const BACKUP_REMINDER_INTERVAL_ACTIVE_MS = 30 * 60 * 1000;
+
+/** dd-mm-yyyy, per the app's date display convention. */
+function formatDateDMY(iso: string): string {
+  const d = new Date(iso);
+  const dd = String(d.getDate()).padStart(2, "0");
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  return `${dd}-${mm}-${d.getFullYear()}`;
+}
 
 /**
  * Drag-drop / click-to-upload / paste-from-clipboard image picker. Used both
@@ -218,7 +228,7 @@ function FormationRow({
             className="w-full rounded-lg bg-surface px-2 py-1.5 text-sm"
           />
         </td>
-        {showAdded && <td className="py-2 px-2 align-top text-text-muted whitespace-nowrap">{new Date(f.createdAt).toLocaleDateString()}</td>}
+        {showAdded && <td className="py-2 px-2 align-top text-text-muted whitespace-nowrap">{formatDateDMY(f.createdAt)}</td>}
         <td className="py-2 px-2 align-top text-right whitespace-nowrap">
           <Button variant="primary" className="px-2.5 py-1 text-xs" disabled={isSaving} onClick={handleSave}>
             {isSaving ? "Saving…" : "Save"}
@@ -240,7 +250,7 @@ function FormationRow({
       <td className="py-2 px-2 text-text-body whitespace-nowrap">{f.subCategory || <span className="text-text-muted italic">—</span>}</td>
       <td className="py-2 px-2 text-text-body max-w-[220px]">{f.detail || <span className="text-text-muted italic">—</span>}</td>
       <td className="py-2 px-2 font-semibold text-primary-dark">{f.trait || <span className="text-text-muted italic font-normal">—</span>}</td>
-      {showAdded && <td className="py-2 px-2 text-text-muted whitespace-nowrap">{new Date(f.createdAt).toLocaleDateString()}</td>}
+      {showAdded && <td className="py-2 px-2 text-text-muted whitespace-nowrap">{formatDateDMY(f.createdAt)}</td>}
       <td className="py-2 px-2 text-right whitespace-nowrap">
         <Button variant="outline" className="px-2.5 py-1 text-xs" onClick={startEdit}>
           Edit
@@ -356,82 +366,13 @@ function EntryForm({
   );
 }
 
-function AddFormationTab({ store }: { store: FormationsStore }) {
-  const { formations, addFormation, removeFormation, updateFormation } = store;
-  const { categories, subCategories } = useCategoryOptions(formations);
-  const [draft, setDraft] = useState<DraftFields>(EMPTY_DRAFT);
-  const [isSaving, setIsSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [sessionIds, setSessionIds] = useState<string[]>([]);
-
-  async function handleSubmit() {
-    setIsSaving(true);
-    setError(null);
-    try {
-      const entry = await addFormation(draft.file, draft.detail, draft.trait, draft.category, draft.subCategory);
-      setSessionIds((prev) => [entry.id, ...prev]);
-      // Keep category/sub-category (usually stay the same for a run of related entries); clear the rest.
-      setDraft({ file: null, category: draft.category, subCategory: draft.subCategory, detail: "", trait: "" });
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not save this formation.");
-    } finally {
-      setIsSaving(false);
-    }
-  }
-
-  const justAdded = formations.filter((f) => sessionIds.includes(f.id));
-
-  return (
-    <div className="flex flex-col gap-4">
-      <Card>
-        <CardTitle>Add a letter formation</CardTitle>
-        <CardSubtitle>
-          Upload an image of the formation, its category/sub-category, a short detail, and the trait it&apos;s said
-          to indicate — or save with only some fields filled in and fill in the rest later (edit any row below). The
-          form stays open after each add so you can enter several rows one after another. Saved in your browser only.
-        </CardSubtitle>
-        <div className="mt-4">
-          <EntryForm
-            draft={draft}
-            setDraft={setDraft}
-            onSubmit={handleSubmit}
-            isSaving={isSaving}
-            error={error}
-            categories={categories}
-            subCategories={subCategories}
-          />
-        </div>
-      </Card>
-
-      {justAdded.length > 0 && (
-        <Card padding="p-3">
-          <CardTitle className="px-2 pt-1">Added this session ({justAdded.length})</CardTitle>
-          <div className="overflow-x-auto mt-2">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-left text-text-muted border-b border-border-soft">
-                  <th className="py-2 px-2 font-medium">Formation</th>
-                  <th className="py-2 px-2 font-medium">Category</th>
-                  <th className="py-2 px-2 font-medium">Sub-category</th>
-                  <th className="py-2 px-2 font-medium">Detail</th>
-                  <th className="py-2 px-2 font-medium">Trait</th>
-                  <th className="py-2 px-2 font-medium"></th>
-                </tr>
-              </thead>
-              <tbody>
-                {justAdded.map((f) => (
-                  <FormationRow key={f.id} f={f} onRemove={removeFormation} onUpdate={updateFormation} />
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </Card>
-      )}
-    </div>
-  );
-}
-
-function FormationTableTab({ store }: { store: FormationsStore }) {
+/**
+ * The Formation Library sub-tab: the entry form sits in a left column right
+ * next to the workflow sidebar, the table of saved formations to its right.
+ * There's no separate "add" tab — this form is always here, and whatever you
+ * add appears immediately at the top of the table beside it.
+ */
+function FormationLibraryTab({ store }: { store: FormationsStore }) {
   const { formations, loaded, addFormation, removeFormation, updateFormation } = store;
   const { categories, subCategories } = useCategoryOptions(formations);
   const [draft, setDraft] = useState<DraftFields>(EMPTY_DRAFT);
@@ -443,6 +384,7 @@ function FormationTableTab({ store }: { store: FormationsStore }) {
     setError(null);
     try {
       await addFormation(draft.file, draft.detail, draft.trait, draft.category, draft.subCategory);
+      // Keep category/sub-category (usually stay the same for a run of related entries); clear the rest.
       setDraft({ file: null, category: draft.category, subCategory: draft.subCategory, detail: "", trait: "" });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not save this formation.");
@@ -452,11 +394,15 @@ function FormationTableTab({ store }: { store: FormationsStore }) {
   }
 
   return (
-    <div className="flex flex-col gap-4">
-      <Card>
-        <CardTitle>Submit a formation</CardTitle>
-        <CardSubtitle>Drag &amp; drop or upload an image, fill in the details, and add a row to the table below. Add several in a row — the form stays ready.</CardSubtitle>
-        <div className="mt-3">
+    <div className="grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-4 items-start">
+      <Card className="lg:sticky lg:top-4">
+        <CardTitle>Add a letter formation</CardTitle>
+        <CardSubtitle>
+          Upload an image, its category/sub-category, a short detail, and the trait it&apos;s said to indicate — or
+          save with only some fields filled in and fill in the rest later via Edit. New entries appear at the top of
+          the table, and the form stays ready for the next one.
+        </CardSubtitle>
+        <div className="mt-4">
           <EntryForm
             draft={draft}
             setDraft={setDraft}
@@ -465,7 +411,6 @@ function FormationTableTab({ store }: { store: FormationsStore }) {
             error={error}
             categories={categories}
             subCategories={subCategories}
-            compact
           />
         </div>
       </Card>
@@ -491,7 +436,7 @@ function FormationTableTab({ store }: { store: FormationsStore }) {
               {loaded && formations.length === 0 && (
                 <tr>
                   <td colSpan={7} className="py-6 text-center text-sm text-text-muted">
-                    No formations yet. Add one above.
+                    No formations yet. Add one on the left.
                   </td>
                 </tr>
               )}
@@ -511,7 +456,7 @@ function timeAgo(iso: string): string {
   return new Date(iso).toLocaleString();
 }
 
-function BackupControls({ store }: { store: FormationsStore }) {
+function BackupTab({ store }: { store: FormationsStore }) {
   const { formations, exportFormations, importFormations, autoBackup } = store;
   const importInputRef = useRef<HTMLInputElement>(null);
   const [importMode, setImportMode] = useState<"merge" | "replace">("merge");
@@ -639,32 +584,37 @@ function BackupControls({ store }: { store: FormationsStore }) {
 }
 
 /**
- * Every 15 minutes while there are unsaved-to-backup changes (an add, edit,
- * or remove since the last export/auto-backup), nudge the user to back up.
- * "Saved" here means backed up externally — localStorage already persists
- * every change immediately, so this is purely a reminder, not a data-loss
- * risk in the moment; skipping it just means asking again in 15 more minutes.
+ * Nudges the user to back up while there are unsaved-to-backup changes (an
+ * add, edit, or remove since the last export/auto-backup) — every 15 minutes
+ * normally, or every 30 minutes once an automatic backup file is connected
+ * (less urgent, since changes are already being written there). "Saved" here
+ * means backed up externally — localStorage already persists every change
+ * immediately, so this is purely a reminder, not a data-loss risk in the
+ * moment; skipping it just means asking again next interval.
  */
 function BackupReminderModal({ store }: { store: FormationsStore }) {
-  const { hasUnsavedChanges, markBackedUp, exportFormations, formations } = store;
+  const { hasUnsavedChanges, markBackedUp, exportFormations, formations, autoBackup } = store;
   const [open, setOpen] = useState(false);
+  const intervalMs = autoBackup.status === "active" ? BACKUP_REMINDER_INTERVAL_ACTIVE_MS : BACKUP_REMINDER_INTERVAL_MS;
 
   useEffect(() => {
     const timer = setInterval(() => {
       setOpen((wasOpen) => wasOpen || hasUnsavedChanges);
-    }, BACKUP_REMINDER_INTERVAL_MS);
+    }, intervalMs);
     return () => clearInterval(timer);
-  }, [hasUnsavedChanges]);
+  }, [hasUnsavedChanges, intervalMs]);
 
   if (!open || formations.length === 0) return null;
+
+  const minutes = intervalMs / 60_000;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 px-4" role="dialog" aria-modal="true">
       <Card className="max-w-sm w-full">
         <CardTitle>Back up your Letter Formations?</CardTitle>
         <CardSubtitle>
-          It&apos;s been 15 minutes since your last backup and you&apos;ve made changes. Your data is already saved
-          in this browser, but exporting a backup file protects it if browser data ever gets cleared.
+          It&apos;s been {minutes} minutes since your last backup and you&apos;ve made changes. Your data is already
+          saved in this browser, but exporting a backup file protects it if browser data ever gets cleared.
         </CardSubtitle>
         <div className="mt-4 flex justify-end gap-2">
           <Button
@@ -692,7 +642,7 @@ function BackupReminderModal({ store }: { store: FormationsStore }) {
 
 export function FormationsPanel() {
   const store = useFormations();
-  const [subTab, setSubTab] = useState<FormationsSubTab>("add");
+  const [subTab, setSubTab] = useState<FormationsSubTab>("library");
 
   return (
     <div className="flex flex-col gap-6">
@@ -705,8 +655,6 @@ export function FormationsPanel() {
           app.
         </p>
       </div>
-
-      <BackupControls store={store} />
 
       <div className="flex gap-1.5 overflow-x-auto scrollbar-thin pb-1 -mx-1 px-1">
         {FORMATIONS_SUB_TABS.map((tab) => (
@@ -722,8 +670,8 @@ export function FormationsPanel() {
         ))}
       </div>
 
-      {subTab === "add" && <AddFormationTab store={store} />}
-      {subTab === "table" && <FormationTableTab store={store} />}
+      {subTab === "library" && <FormationLibraryTab store={store} />}
+      {subTab === "backup" && <BackupTab store={store} />}
 
       <BackupReminderModal store={store} />
     </div>

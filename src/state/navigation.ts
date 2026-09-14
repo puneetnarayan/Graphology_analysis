@@ -29,7 +29,7 @@ export type PrimarySection =
   | "report"
   | "formations";
 
-export type FormationsSubTab = "add" | "table";
+export type FormationsSubTab = "library" | "backup";
 
 export interface FormationsSubTabDef {
   key: FormationsSubTab;
@@ -37,8 +37,8 @@ export interface FormationsSubTabDef {
 }
 
 export const FORMATIONS_SUB_TABS: FormationsSubTabDef[] = [
-  { key: "add", label: "Add Formation" },
-  { key: "table", label: "Formation Library" },
+  { key: "library", label: "Formation Library" },
+  { key: "backup", label: "Backup & Restore" },
 ];
 
 export type OcrSubTab = "text" | "letters" | "confidence";

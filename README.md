@@ -178,27 +178,27 @@ The **Letter Formations** tab is a personal, browser-local reference library for
 graphology "cheat sheet" example you might collect by hand — a picture of a specific letter
 formation, paired with the trait it's said to indicate. It has two sub-tabs:
 
-- **Add Formation**: upload or drag-and-drop an image, then fill in a **category** (a broad
-  grouping, e.g. "Letter connections"), a **sub-category** (a narrower grouping within it,
-  e.g. "Garland"), a **detail** describing the formation (e.g. "Wavy line — no angles, just
-  curves"), and the **trait** it's said to indicate (e.g. "Diplomatic"). After each add, the
-  form stays open with the category/sub-category retained so you can add several related
-  rows one after another without re-entering them, and each row you add in the session
-  appears in a running list right below the form.
-- **Formation Library**: the same add form in a compact, table-row layout, plus a table of
-  every formation you've saved — image thumbnail, category, sub-category, detail, trait, and
-  Edit/Remove actions.
+- **Formation Library** (default): a two-column layout — the entry form sits in a left column
+  next to the workflow sidebar (upload an image, then fill in a **category**, a broad grouping
+  e.g. "Letter connections"; a **sub-category**, narrower within it, e.g. "Garland"; a
+  **detail** describing the formation, e.g. "Wavy line — no angles, just curves"; and the
+  **trait** it's said to indicate, e.g. "Diplomatic"), and the table of every saved formation —
+  image thumbnail, category, sub-category, detail, trait, date added, and Edit/Remove — fills
+  the rest of the page to its right. The form stays put and ready after each add (with
+  category/sub-category retained) so you can add several related rows in a row; each new entry
+  appears at the top of the table immediately, right next to the form that made it.
+- **Backup & Restore**: export/import and automatic-backup controls (see below), as its own tab.
 
 **Incomplete entries are fine.** You don't need every field to save a row — add just a trait
 you want to remember, or just an image with no detail yet, and fill in the rest later. The
 only requirement is that at least one field or the image isn't blank (a fully empty row is
 rejected).
 
-**Inline editing.** Click **Edit** on any row (in either sub-tab's table) to edit its
-category, sub-category, detail, and trait in place, and to replace or clear its image — the
-image cell becomes the same drag-drop/upload/paste picker used when adding. **Save** commits
-the change immediately (into localStorage and, if connected, the auto-backup file); **Cancel**
-discards it.
+**Inline editing.** Click **Edit** on any row to edit its category, sub-category, detail, and
+trait in place, and to replace or clear its image — the image cell becomes the same
+drag-drop/upload/paste picker used when adding. **Save** commits the change immediately (into
+localStorage and, if connected, the auto-backup file); **Cancel** discards it. The "Added" date
+is shown as dd-mm-yyyy.
 
 **Paste from clipboard.** Every image picker in the app — the main handwriting sample upload,
 and every Formation image field (adding a new one or editing an existing one's image) — accepts
@@ -211,7 +211,7 @@ the app's no-backend architecture, but unlike the analyzed handwriting sample, t
 is *intentionally* persisted across sessions/reloads so it can be built up over time. Clearing
 your browser's site data for this app removes it, which is exactly why backup exists (see below).
 
-**Backup &amp; restore.** A "Backup & Restore" card sits above both sub-tabs (`src/state/useFormations.ts`):
+**Backup &amp; restore.** Its own sub-tab (`src/state/useFormations.ts` backs both sub-tabs):
 
 - **Export as JSON** / **Import from JSON** — always available, in every browser. Export
   downloads the whole library (images included, as data URLs) as one `.json` file; Import
@@ -233,11 +233,12 @@ Both paths write the same JSON shape, so a file saved by auto-backup can also be
 Import, and vice versa.
 
 **Periodic backup reminder.** While there are changes (an add, edit, or remove) that haven't
-been exported or auto-backed-up yet, a popup appears every 15 minutes prompting you to back
-up, with **Export now** or **Continue without saving** (dismiss and get asked again in another
-15 minutes if still unsaved). This is a nudge, not a data-loss warning — every change is
-already saved to localStorage immediately; the reminder is only about the external-backup
-safety net described above.
+been exported or auto-backed-up yet, a popup prompts you to back up, with **Export now** or
+**Continue without saving** (dismiss and get asked again next interval if still unsaved). The
+interval is **15 minutes** normally, or **30 minutes** once an automatic backup file is
+connected (see above) — less urgent nagging since changes are already being written there.
+This is a nudge, not a data-loss warning — every change is already saved to localStorage
+immediately; the reminder is only about the external-backup safety net described above.
 
 **Not wired into the rule engine.** This is a reference library you curate, not an input to
 the automated analysis — entries here do not feed the graphology rule engine, trait scoring,
