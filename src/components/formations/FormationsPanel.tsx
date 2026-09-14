@@ -1104,6 +1104,7 @@ function BackupTab({ store }: { store: FormationsStore }) {
   const {
     formations,
     exportFormations,
+    backupToGithub,
     analyzeImportFile,
     commitImport,
     exportFormationsCsv,
@@ -1119,6 +1120,21 @@ function BackupTab({ store }: { store: FormationsStore }) {
   const [pendingImport, setPendingImport] = useState<{ analysis: ImportAnalysis; mode: "merge" | "replace" } | null>(null);
   const [libraryScan, setLibraryScan] = useState<LibraryDuplicateScan | null>(null);
   const [dupCheckMessage, setDupCheckMessage] = useState<string | null>(null);
+  const [githubBackupState, setGithubBackupState] = useState<"idle" | "working" | "done" | "error">("idle");
+  const [githubBackupMessage, setGithubBackupMessage] = useState<string | null>(null);
+
+  async function handleGithubBackup() {
+    setGithubBackupState("working");
+    setGithubBackupMessage(null);
+    try {
+      const { path, url } = await backupToGithub();
+      setGithubBackupState("done");
+      setGithubBackupMessage(url ? `Committed ${path}` : `Committed ${path} (no commit URL returned).`);
+    } catch (err) {
+      setGithubBackupState("error");
+      setGithubBackupMessage(err instanceof Error ? err.message : "Backup to GitHub failed.");
+    }
+  }
 
   function handleCheckDuplicates() {
     setDupCheckMessage(null);
@@ -1196,7 +1212,7 @@ function BackupTab({ store }: { store: FormationsStore }) {
         {dupCheckMessage && <p className="text-xs text-text-muted">{dupCheckMessage}</p>}
       </div>
 
-      <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
+      <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         <div className="rounded-xl bg-surface-alt px-4 py-3">
           <p className="text-xs font-semibold text-text-strong mb-2">Manual backup (all browsers)</p>
           <div className="flex flex-wrap gap-2">
@@ -1299,6 +1315,22 @@ function BackupTab({ store }: { store: FormationsStore }) {
                 Retry
               </Button>
             </>
+          )}
+        </div>
+
+        <div className="rounded-xl bg-surface-alt px-4 py-3">
+          <p className="text-xs font-semibold text-text-strong mb-2">Backup to GitHub</p>
+          <p className="text-xs text-text-muted mb-2">
+            Commits a timestamped JSON file into this app&apos;s own <code>backups/</code> folder on GitHub, via a
+            server-side route on this deployment — needs <code>GITHUB_BACKUP_TOKEN</code>,{" "}
+            <code>GITHUB_BACKUP_OWNER</code>, and <code>GITHUB_BACKUP_REPO</code> configured (see README); if not
+            configured on this deployment, it&apos;ll say so.
+          </p>
+          <Button variant="outline" onClick={handleGithubBackup} disabled={githubBackupState === "working" || formations.length === 0}>
+            {githubBackupState === "working" ? "Backing up…" : "Backup to GitHub Now"}
+          </Button>
+          {githubBackupMessage && (
+            <p className={`mt-2 text-xs ${githubBackupState === "error" ? "text-danger" : "text-[#2f6b4d]"}`}>{githubBackupMessage}</p>
           )}
         </div>
       </div>

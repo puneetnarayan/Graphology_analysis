@@ -413,6 +413,42 @@ removes it, which is exactly why backup exists (see below).
 Both paths write the same JSON shape, so a file saved by auto-backup can also be restored via
 Import, and vice versa.
 
+**Backup to GitHub.** A third card next to the two above. This is the one exception to the app's
+otherwise fully client-side, no-backend architecture (see Privacy, below) — a browser page has no
+way to write to a git repository on its own, and doing this without a server would mean embedding
+a GitHub write credential in code that ships to anyone who opens the page, which is a real
+security hole. So this is backed by exactly one server route, `src/app/api/backup-formations/route.ts`,
+which does nothing else:
+
+- Clicking **Backup to GitHub Now** POSTs the current library to that route, which commits it as
+  a new timestamped file (`backups/formations-<timestamp>.json`, one new file per backup — nothing
+  is ever overwritten, so `git log` on that folder is the full backup history) to a GitHub repo,
+  using GitHub's Contents API.
+- The route needs three environment variables set on whatever deployment is running it (Vercel
+  Project Settings → Environment Variables, then redeploy for them to take effect):
+  - `GITHUB_BACKUP_TOKEN` — a GitHub token with write access to the target repo. Use a
+    **fine-grained personal access token** (GitHub → Settings → Developer settings → Personal
+    access tokens → Fine-grained tokens → Generate new token), scoped to just this one repository,
+    with **Contents: Read and write** permission and nothing else. Copy it immediately — GitHub
+    only shows it once.
+  - `GITHUB_BACKUP_OWNER` — the repo owner, e.g. `puneetnarayan`.
+  - `GITHUB_BACKUP_REPO` — the repo name, e.g. `Graphology_analysis`.
+  - Optional: `GITHUB_BACKUP_BRANCH` (defaults to `main`) and `GITHUB_BACKUP_FOLDER` (defaults to
+    `backups`).
+- If those aren't set, the button still appears but clicking it returns a clear "GitHub backup
+  isn't configured on this deployment" message rather than failing silently or crashing.
+- The token lives only in the server environment and is read only inside that one route — it is
+  never sent to the browser, never appears in client-side JavaScript, and the client only ever
+  talks to `/api/backup-formations` on the same origin, never to GitHub directly.
+- Worth knowing if you deploy this publicly: the route itself has no access control beyond
+  requiring a `{ formations: [...] }`-shaped JSON body, so anyone who can reach your deployed URL
+  could trigger a backup commit (of whatever formations payload *they* send, not your real data,
+  since the payload comes from their own request) — annoying at worst (junk commits in
+  `backups/`), not a data leak, since the token only grants write access to that one repo and nothing
+  the endpoint does exposes existing repo contents. If that's a concern, put the deployment behind
+  Vercel's own access controls (password protection, Vercel Authentication) rather than relying on
+  this endpoint to police itself.
+
 **Periodic backup reminder.** While there are changes (an add, edit, or remove) that haven't
 been exported or auto-backed-up yet, a popup prompts you to back up, with **Export now** or
 **Continue without saving** (dismiss and get asked again next interval if still unsaved). The
@@ -431,10 +467,17 @@ check or extend the app's rule library is a natural next step, not yet built.
 
 - Handwriting images are loaded as in-memory `File`/`Canvas`/`ImageData` objects and
   never leave the browser.
-- There is no backend API route, database, or file storage in this application.
+- The app has exactly one backend route, `src/app/api/backup-formations/route.ts`, and it's
+  narrow and opt-in: it exists purely so the Letter Formations library's **Backup to GitHub**
+  button (see above) has somewhere to send a GitHub write credential without exposing it to the
+  browser. It's only reached if you click that button; nothing about handwriting analysis touches
+  it. Everything else in the app remains backend-free — no database, no file storage, no other
+  API route.
 - The only network requests the app makes are for its own static assets, Google Fonts,
-  and — only if you use the Letter Recognition (OCR) tab — a one-time download of
-  Tesseract's pretrained language model from its CDN (see "Letter Recognition (OCR)").
+  — only if you use the Letter Recognition (OCR) tab — a one-time download of
+  Tesseract's pretrained language model from its CDN (see "Letter Recognition (OCR)"), and
+  — only if you click **Backup to GitHub Now** in the Letter Formations library — a request to
+  this app's own `/api/backup-formations` route (which then talks to GitHub's API server-side).
   No handwriting pixel data is ever part of any network request.
 - The JSON report export deliberately excludes raw image bytes — only normalized
   region coordinates (0–1 fractions) and measurements are included.

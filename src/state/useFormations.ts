@@ -424,6 +424,28 @@ export function useFormations() {
     setHasUnsavedChanges(false);
   }, [formations]);
 
+  /**
+   * Sends the current library to this deployment's /api/backup-formations
+   * route, which commits it as a new timestamped file under backups/ in the
+   * GitHub repo (server-side only — see that route for what it needs
+   * configured). Requires the app to be running on a deployment with that
+   * configured; throws with a readable message otherwise.
+   */
+  const backupToGithub = useCallback(async (): Promise<{ path: string; url: string | null }> => {
+    const payload = { exportedAt: new Date().toISOString(), formations };
+    const res = await fetch("/api/backup-formations", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(data.error || `Backup failed (${res.status}).`);
+    }
+    setHasUnsavedChanges(false);
+    return { path: data.path, url: data.url ?? null };
+  }, [formations]);
+
   /** Shared by JSON and CSV import: writes `incoming` in either merge or replace mode. */
   const applyIncoming = useCallback(async (incoming: FormationEntry[], mode: "merge" | "replace") => {
     if (mode === "replace") {
@@ -572,6 +594,7 @@ export function useFormations() {
     findLibraryDuplicates,
     removeDuplicateFormations,
     exportFormations,
+    backupToGithub,
     analyzeImportFile,
     commitImport,
     exportFormationsCsv,
