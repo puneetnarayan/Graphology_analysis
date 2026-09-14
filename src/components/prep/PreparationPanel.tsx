@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { useWorkflow } from "@/state/workflowStore";
+import { useWorkflow, DEFAULT_LIVE_UPDATE_DELAY_MS, MIN_LIVE_UPDATE_DELAY_MS } from "@/state/workflowStore";
 import { Card, CardTitle, CardSubtitle } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { DEFAULT_PREPROCESSING } from "@/types";
@@ -50,6 +50,72 @@ interface DragRect {
   y0: number;
   x1: number;
   y1: number;
+}
+
+function LiveAnalysisCard() {
+  const ctx = useWorkflow();
+  const delaySeconds = (ctx.liveUpdateDelayMs / 1000).toFixed(2);
+
+  const trend = ctx.confidenceTrend;
+  const trendDisplay =
+    trend && trend.direction !== "flat"
+      ? { symbol: trend.direction === "up" ? "▲" : "▼", tone: trend.direction === "up" ? "text-success" : "text-danger" }
+      : trend
+        ? { symbol: "→", tone: "text-text-muted" }
+        : null;
+
+  return (
+    <Card>
+      <CardTitle>Live Analysis</CardTitle>
+      <CardSubtitle>
+        {ctx.accepted
+          ? "The report updates automatically as you adjust settings below."
+          : "Run your first analysis (below) to enable automatic live updates as you adjust settings."}
+      </CardSubtitle>
+
+      {ctx.accepted && (
+        <div className="mt-3 flex items-center justify-between rounded-lg bg-surface-alt px-3 py-2.5">
+          <div>
+            <p className="text-[11px] text-text-muted">Analysis Confidence</p>
+            <p className="text-lg font-semibold text-text-strong">
+              {ctx.analysisReport ? `${ctx.analysisReport.overallConfidence}%` : "—"}
+              {trendDisplay && (
+                <span className={`ml-1.5 text-sm font-medium ${trendDisplay.tone}`}>
+                  {trendDisplay.symbol}
+                  {trend && trend.direction !== "flat" ? ` ${Math.abs(trend.delta)}` : ""}
+                </span>
+              )}
+            </p>
+          </div>
+          {ctx.isLiveUpdating && (
+            <span className="flex items-center gap-1.5 text-xs text-primary-dark">
+              <span className="h-1.5 w-1.5 rounded-full bg-primary animate-pulse" />
+              Updating…
+            </span>
+          )}
+        </div>
+      )}
+
+      <label className="mt-3 flex flex-col gap-1.5 text-xs">
+        <span className="flex justify-between text-text-muted font-medium">
+          <span>Live update delay</span>
+          <span className="text-text-strong">{delaySeconds}s</span>
+        </span>
+        <input
+          type="range"
+          min={MIN_LIVE_UPDATE_DELAY_MS}
+          max={1500}
+          step={50}
+          value={ctx.liveUpdateDelayMs}
+          onChange={(e) => ctx.setLiveUpdateDelayMs(Number(e.target.value))}
+          className="w-full accent-[color:var(--primary)]"
+        />
+        <span className="text-[11px] text-text-muted">
+          Delay after your last change before the report recomputes. Default {DEFAULT_LIVE_UPDATE_DELAY_MS / 1000}s.
+        </span>
+      </label>
+    </Card>
+  );
 }
 
 export function PreparationPanel() {
@@ -164,6 +230,8 @@ export function PreparationPanel() {
         </Card>
 
         <div className="flex flex-col gap-4">
+          <LiveAnalysisCard />
+
           <Card>
             <CardTitle>Rotate & Crop</CardTitle>
             <div className="mt-3 flex flex-wrap gap-2">

@@ -49,7 +49,7 @@ export function AnalysisPanel() {
         <p className="text-sm text-text-muted mt-1">Measured handwriting characteristics, organized by category.</p>
       </div>
 
-      <DashboardSummary report={report} />
+      <DashboardSummary report={report} isLiveUpdating={ctx.isLiveUpdating} />
 
       <div className="flex gap-1.5 overflow-x-auto scrollbar-thin pb-1 -mx-1 px-1">
         {ANALYSIS_SUB_TABS.map((tab) => (

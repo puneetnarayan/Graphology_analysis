@@ -4,6 +4,7 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useRef,
   useState,
@@ -25,6 +26,16 @@ export interface ManualOverride {
   source: ObservationSource;
 }
 
+export interface ConfidenceTrend {
+  direction: "up" | "down" | "flat";
+  delta: number;
+}
+
+/** Default debounce delay before a live re-analysis fires after a Preparation change. */
+export const DEFAULT_LIVE_UPDATE_DELAY_MS = 200;
+export const MIN_LIVE_UPDATE_DELAY_MS = 50;
+export const MAX_LIVE_UPDATE_DELAY_MS = 3000;
+
 interface WorkflowState {
   activeSection: PrimarySection;
   activeSubTab: AnalysisSubTab;
@@ -38,12 +49,17 @@ interface WorkflowState {
   analyzeRegardlessOfQuality: boolean;
   accepted: boolean;
   isAssessingQuality: boolean;
+  /** True only for the first, full-screen analysis run (Accept & Analyze). */
   isAnalyzing: boolean;
+  /** True for a background re-analysis triggered by a Preparation change; the existing report stays visible while this runs. */
+  isLiveUpdating: boolean;
   progressEvents: AnalysisProgressEvent[];
   analysisReport: AnalysisReport | null;
   overrides: Record<string, ManualOverride>;
   error: string | null;
   highlightedRegionEvidenceId: string | null;
+  liveUpdateDelayMs: number;
+  confidenceTrend: ConfidenceTrend | null;
 }
 
 interface WorkflowActions {
@@ -59,6 +75,7 @@ interface WorkflowActions {
   setOverride: (featureKey: string, value: string) => void;
   clearOverride: (featureKey: string) => void;
   setHighlightedEvidence: (id: string | null) => void;
+  setLiveUpdateDelayMs: (ms: number) => void;
   reset: () => void;
 }
 
@@ -86,14 +103,46 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
   const [accepted, setAccepted] = useState(false);
   const [isAssessingQuality, setIsAssessingQuality] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [isLiveUpdating, setIsLiveUpdating] = useState(false);
   const [progressEvents, setProgressEvents] = useState<AnalysisProgressEvent[]>([]);
   const [analysisReport, setAnalysisReport] = useState<AnalysisReport | null>(null);
   const [overrides, setOverrides] = useState<Record<string, ManualOverride>>({});
   const [error, setError] = useState<string | null>(null);
   const [highlightedRegionEvidenceId, setHighlightedRegionEvidenceId] = useState<string | null>(null);
+  const [liveUpdateDelayMs, setLiveUpdateDelayMsState] = useState(DEFAULT_LIVE_UPDATE_DELAY_MS);
+  const [confidenceTrend, setConfidenceTrend] = useState<ConfidenceTrend | null>(null);
 
   const originalCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const objectUrlRef = useRef<string | null>(null);
+  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastConfidenceRef = useRef<number | null>(null);
+  const acceptedRef = useRef(false);
+  const liveUpdateDelayMsRef = useRef(DEFAULT_LIVE_UPDATE_DELAY_MS);
+  const analyzeRegardlessRef = useRef(analyzeRegardlessOfQuality);
+  const sampleMetadataRef = useRef<SampleMetadata | null>(null);
+
+  useEffect(() => {
+    acceptedRef.current = accepted;
+  }, [accepted]);
+  useEffect(() => {
+    liveUpdateDelayMsRef.current = liveUpdateDelayMs;
+  }, [liveUpdateDelayMs]);
+  useEffect(() => {
+    analyzeRegardlessRef.current = analyzeRegardlessOfQuality;
+  }, [analyzeRegardlessOfQuality]);
+  useEffect(() => {
+    sampleMetadataRef.current = sampleMetadata;
+  }, [sampleMetadata]);
+
+  const clearDebounceTimer = useCallback(() => {
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+      debounceTimerRef.current = null;
+    }
+  }, []);
+
+  // Debounce timer must be cleared on unmount, not just on the next reschedule.
+  useEffect(() => clearDebounceTimer, [clearDebounceTimer]);
 
   const releaseMemory = useCallback(() => {
     if (objectUrlRef.current) {
@@ -113,11 +162,85 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  const preparedCanvasFor = useCallback((settings: PreprocessingSettings): HTMLCanvasElement | null => {
+    if (!originalCanvasRef.current) return null;
+    return applyPreprocessing(originalCanvasRef.current, settings);
+  }, []);
+
+  /**
+   * Runs scan-quality assessment + the full feature-extraction/rule-engine
+   * pipeline in one continuous pass (spec: "do all the analysis in one go").
+   * `initial` drives the full-screen progress view (first Accept & Analyze);
+   * a non-initial run is a silent background re-analysis triggered by a
+   * Preparation change — the previous report stays on screen until the new
+   * one is ready, so re-tuning settings never blocks on a wait screen.
+   */
+  const runFullAnalysis = useCallback(
+    async (settingsForRun: PreprocessingSettings, opts: { initial: boolean }) => {
+      const metadata = sampleMetadataRef.current;
+      const prepared = preparedCanvasFor(settingsForRun);
+      if (!prepared || !metadata) return;
+
+      if (opts.initial) {
+        setIsAnalyzing(true);
+        setProgressEvents([]);
+        setActiveSection("analysis");
+      } else {
+        setIsLiveUpdating(true);
+      }
+      setError(null);
+
+      try {
+        const analysisCanvas = toAnalysisCanvas(prepared);
+        const imageData = get2dContext(analysisCanvas).getImageData(0, 0, analysisCanvas.width, analysisCanvas.height);
+        const quality = assessScanQuality(imageData);
+        setScanQuality(quality);
+
+        const report = await runAnalysisInWorker(
+          { imageData, analyzeRegardlessOfQuality: analyzeRegardlessRef.current, sampleMetadata: metadata, preprocessing: settingsForRun },
+          (event) => {
+            if (opts.initial) setProgressEvents((prev) => [...prev.filter((e) => e.step !== event.step), event]);
+          },
+        );
+
+        const prevConfidence = lastConfidenceRef.current;
+        if (prevConfidence !== null) {
+          const delta = report.overallConfidence - prevConfidence;
+          setConfidenceTrend({
+            direction: delta > 0.5 ? "up" : delta < -0.5 ? "down" : "flat",
+            delta: Math.round(delta),
+          });
+        }
+        lastConfidenceRef.current = report.overallConfidence;
+        setAnalysisReport(report);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Analysis failed.");
+      } finally {
+        if (opts.initial) setIsAnalyzing(false);
+        else setIsLiveUpdating(false);
+      }
+    },
+    [preparedCanvasFor],
+  );
+
+  const scheduleLiveUpdate = useCallback(
+    (next: PreprocessingSettings) => {
+      if (!acceptedRef.current) return;
+      clearDebounceTimer();
+      debounceTimerRef.current = setTimeout(() => {
+        debounceTimerRef.current = null;
+        runFullAnalysis(next, { initial: false });
+      }, liveUpdateDelayMsRef.current);
+    },
+    [clearDebounceTimer, runFullAnalysis],
+  );
+
   const loadFile = useCallback(
     async (f: File) => {
       setError(null);
       try {
         releaseMemory();
+        clearDebounceTimer();
         const img = await loadImageElement(f);
         const canvas = imageElementToCanvas(img);
         originalCanvasRef.current = canvas;
@@ -139,13 +262,15 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
         setAccepted(false);
         setAnalysisReport(null);
         setOverrides({});
+        lastConfidenceRef.current = null;
+        setConfidenceTrend(null);
         recomputePreview(DEFAULT_PREPROCESSING);
         setActiveSection("prepare");
       } catch (err) {
         setError(err instanceof Error ? err.message : "Could not load this file.");
       }
     },
-    [recomputePreview, releaseMemory],
+    [clearDebounceTimer, recomputePreview, releaseMemory],
   );
 
   const updatePreprocessing = useCallback(
@@ -153,16 +278,18 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
       setPreprocessing((prev) => {
         const next = { ...prev, ...patch };
         recomputePreview(next);
+        scheduleLiveUpdate(next);
         return next;
       });
     },
-    [recomputePreview],
+    [recomputePreview, scheduleLiveUpdate],
   );
 
   const resetPreprocessing = useCallback(() => {
     setPreprocessing(DEFAULT_PREPROCESSING);
     recomputePreview(DEFAULT_PREPROCESSING);
-  }, [recomputePreview]);
+    scheduleLiveUpdate(DEFAULT_PREPROCESSING);
+  }, [recomputePreview, scheduleLiveUpdate]);
 
   const autoDeskew = useCallback(() => {
     if (!originalCanvasRef.current) return;
@@ -180,13 +307,8 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
     });
   }, [updatePreprocessing]);
 
-  const getPreparedFullResCanvas = useCallback((): HTMLCanvasElement | null => {
-    if (!originalCanvasRef.current) return null;
-    return applyPreprocessing(originalCanvasRef.current, preprocessing);
-  }, [preprocessing]);
-
   const assessQuality = useCallback(async () => {
-    const prepared = getPreparedFullResCanvas();
+    const prepared = preparedCanvasFor(preprocessing);
     if (!prepared) return;
     setIsAssessingQuality(true);
     setError(null);
@@ -202,30 +324,14 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
     } finally {
       setIsAssessingQuality(false);
     }
-  }, [getPreparedFullResCanvas]);
+  }, [preparedCanvasFor, preprocessing]);
 
   const acceptAndAnalyze = useCallback(async () => {
-    const prepared = getPreparedFullResCanvas();
-    if (!prepared || !scanQuality || !sampleMetadata) return;
+    if (!scanQuality) return;
     setAccepted(true);
-    setIsAnalyzing(true);
-    setProgressEvents([]);
-    setError(null);
-    setActiveSection("analysis");
-    try {
-      const analysisCanvas = toAnalysisCanvas(prepared);
-      const imageData = get2dContext(analysisCanvas).getImageData(0, 0, analysisCanvas.width, analysisCanvas.height);
-      const report = await runAnalysisInWorker(
-        { imageData, analyzeRegardlessOfQuality, sampleMetadata, preprocessing },
-        (event) => setProgressEvents((prev) => [...prev.filter((e) => e.step !== event.step), event]),
-      );
-      setAnalysisReport(report);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Analysis failed.");
-    } finally {
-      setIsAnalyzing(false);
-    }
-  }, [analyzeRegardlessOfQuality, getPreparedFullResCanvas, preprocessing, sampleMetadata, scanQuality]);
+    acceptedRef.current = true;
+    await runFullAnalysis(preprocessing, { initial: true });
+  }, [preprocessing, runFullAnalysis, scanQuality]);
 
   const setOverride = useCallback((featureKey: string, value: string) => {
     setOverrides((prev) => ({ ...prev, [featureKey]: { featureKey, value, source: "user_override" } }));
@@ -239,8 +345,14 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  const setLiveUpdateDelayMs = useCallback((ms: number) => {
+    const clamped = Math.min(MAX_LIVE_UPDATE_DELAY_MS, Math.max(MIN_LIVE_UPDATE_DELAY_MS, Math.round(ms)));
+    setLiveUpdateDelayMsState(clamped);
+  }, []);
+
   const reset = useCallback(() => {
     releaseMemory();
+    clearDebounceTimer();
     setFile(null);
     setSampleMetadata(null);
     setPreviewDataUrl(null);
@@ -248,12 +360,16 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
     setPreprocessing(DEFAULT_PREPROCESSING);
     setScanQuality(null);
     setAccepted(false);
+    acceptedRef.current = false;
     setAnalysisReport(null);
     setOverrides({});
     setProgressEvents([]);
+    setIsLiveUpdating(false);
+    lastConfidenceRef.current = null;
+    setConfidenceTrend(null);
     setError(null);
     setActiveSection("upload");
-  }, [releaseMemory]);
+  }, [clearDebounceTimer, releaseMemory]);
 
   const value = useMemo<WorkflowContextValue>(
     () => ({
@@ -270,11 +386,14 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
       accepted,
       isAssessingQuality,
       isAnalyzing,
+      isLiveUpdating,
       progressEvents,
       analysisReport,
       overrides,
       error,
       highlightedRegionEvidenceId,
+      liveUpdateDelayMs,
+      confidenceTrend,
       setActiveSection,
       setActiveSubTab,
       loadFile,
@@ -287,6 +406,7 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
       setOverride,
       clearOverride,
       setHighlightedEvidence: setHighlightedRegionEvidenceId,
+      setLiveUpdateDelayMs,
       reset,
     }),
     [
@@ -302,11 +422,14 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
       accepted,
       isAssessingQuality,
       isAnalyzing,
+      isLiveUpdating,
       progressEvents,
       analysisReport,
       overrides,
       error,
       highlightedRegionEvidenceId,
+      liveUpdateDelayMs,
+      confidenceTrend,
       loadFile,
       updatePreprocessing,
       resetPreprocessing,
@@ -315,6 +438,7 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
       acceptAndAnalyze,
       setOverride,
       clearOverride,
+      setLiveUpdateDelayMs,
       reset,
     ],
   );

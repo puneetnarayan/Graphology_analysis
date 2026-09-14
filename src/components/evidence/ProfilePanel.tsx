@@ -4,6 +4,7 @@ import { useWorkflow } from "@/state/workflowStore";
 import { Card, CardTitle, CardSubtitle } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
+import { LiveUpdateBadge } from "@/components/ui/LiveUpdateBadge";
 
 const TONES = ["primary", "mint", "sky", "peach", "blush", "butter"] as const;
 
@@ -38,7 +39,10 @@ export function ProfilePanel() {
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <h2 className="text-xl font-semibold text-text-strong">Personality Profile</h2>
+        <div className="flex items-center gap-2">
+          <h2 className="text-xl font-semibold text-text-strong">Personality Profile</h2>
+          {ctx.isLiveUpdating && <LiveUpdateBadge />}
+        </div>
         <p className="text-sm text-text-muted mt-1">
           A high-level profile based only on aggregated evidence from this sample. This is an interpretive
           graphological profile, not a clinical psychological assessment.

@@ -170,7 +170,8 @@ function synthesizeTraits(activations: RuleActivation[]): {
 
     const band = score >= 62 ? "high" : score <= 38 ? "low" : "mid";
     const descriptor = band === "high" ? def.highText : band === "low" ? def.lowText : def.midText;
-    const synthesisText = `The handwriting shows indicators consistent with ${descriptor}.${contradictionNote}`;
+    const capitalizedDescriptor = descriptor.charAt(0).toUpperCase() + descriptor.slice(1);
+    const synthesisText = `${capitalizedDescriptor}.${contradictionNote}`;
 
     traitScores.push({
       trait: def.key,

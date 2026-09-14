@@ -1,4 +1,5 @@
 import { Card } from "@/components/ui/Card";
+import { LiveUpdateBadge } from "@/components/ui/LiveUpdateBadge";
 import type { AnalysisReport } from "@/types";
 
 function StatTile({ label, value, tone }: { label: string; value: string; tone: "primary" | "mint" | "sky" | "peach" }) {
@@ -11,14 +12,17 @@ function StatTile({ label, value, tone }: { label: string; value: string; tone: 
   );
 }
 
-export function DashboardSummary({ report }: { report: AnalysisReport }) {
+export function DashboardSummary({ report, isLiveUpdating }: { report: AnalysisReport; isLiveUpdating?: boolean }) {
   const availableFeatures = Object.values(report.features).filter((f) => f.available).length;
   const limitedFeatures = Object.values(report.features).filter((f) => !f.available).length;
 
   return (
     <Card>
       <div className="flex items-center justify-between flex-wrap gap-2">
-        <h3 className="text-sm font-semibold text-text-strong">Analysis Complete</h3>
+        <div className="flex items-center gap-2">
+          <h3 className="text-sm font-semibold text-text-strong">Analysis Complete</h3>
+          {isLiveUpdating && <LiveUpdateBadge />}
+        </div>
         <span className="text-xs text-text-muted">
           Engine v{report.engineVersion} &middot; Rules v{report.ruleLibraryVersion}
         </span>

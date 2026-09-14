@@ -157,6 +157,23 @@ from both directions (e.g. some evidence pushing higher, some lower) are flagged
 **contradictions** with a synthesized reconciliation sentence rather than being
 silently averaged away.
 
+## Live re-analysis
+
+Scan quality assessment, feature extraction and rule evaluation run together as one
+continuous pass in the Web Worker (`runFullAnalysis` in `src/state/workflowStore.tsx`) —
+there's no separate staged wait between steps once it starts.
+
+After your first **Accept & Analyze**, any further change on the **Image Preparation**
+tab (rotate, crop, brightness, threshold, etc.) automatically reschedules that same
+pass: it waits for a short, configurable debounce (default **0.2s**, adjustable via the
+"Live update delay" slider on that tab, 0.05s–1.5s) after your last change, then reruns
+quality assessment + analysis in the background. The previously computed report stays
+visible the whole time — Analysis, Personality Profile and Report all show a small
+"Recalculating…" badge while this happens, but never block or reset to a wait screen —
+and swaps in the new numbers once ready. The Image Preparation tab itself shows the
+live analysis confidence with a trend indicator (▲/▼ and the point delta) so you can see
+immediately whether a change you just made improved or hurt overall confidence.
+
 ## Testing
 
 `npm test` runs Vitest unit tests covering:

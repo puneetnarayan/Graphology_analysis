@@ -5,6 +5,7 @@ import { useWorkflow } from "@/state/workflowStore";
 import { Card, CardTitle, CardSubtitle } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { ReadabilityBadge } from "@/components/ui/Badge";
+import { LiveUpdateBadge } from "@/components/ui/LiveUpdateBadge";
 import { buildTextReport } from "@/report/textReport";
 import { exportReportToPdf } from "@/report/pdfExport";
 
@@ -46,7 +47,10 @@ export function ReportPanel() {
     <div className="flex flex-col gap-6">
       <div className="no-print flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h2 className="text-xl font-semibold text-text-strong">Report</h2>
+          <div className="flex items-center gap-2">
+            <h2 className="text-xl font-semibold text-text-strong">Report</h2>
+            {ctx.isLiveUpdating && <LiveUpdateBadge />}
+          </div>
           <p className="text-sm text-text-muted mt-1">Full evidence-based graphology analysis report.</p>
         </div>
         <div className="flex flex-wrap gap-2">
