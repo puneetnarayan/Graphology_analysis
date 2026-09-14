@@ -1,8 +1,12 @@
 /** A single user-contributed example of a letter formation and the trait it's said to indicate. */
 export interface FormationEntry {
   id: string;
-  /** Downscaled image as a data URL — kept small so the library stays within localStorage limits. */
-  imageDataUrl: string;
+  /**
+   * Downscaled image as a data URL — kept small so the library stays within
+   * localStorage limits. Optional: incomplete entries (added before the
+   * image was on hand) can omit it and have it filled in later via inline edit.
+   */
+  imageDataUrl?: string;
   /** Description of the formation, e.g. "Wavy line — no angles, just curves". */
   detail: string;
   /** The personality trait / aspect this formation is said to indicate, e.g. "Diplomatic". */

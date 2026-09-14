@@ -1,27 +1,36 @@
 "use client";
 
-import { useMemo, useRef, useState, type DragEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type DragEvent } from "react";
 import { Card, CardTitle, CardSubtitle } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { FORMATIONS_SUB_TABS, type FormationsSubTab } from "@/state/navigation";
 import { useFormations } from "@/state/useFormations";
+import { extractImageFileFromClipboard } from "@/utils/clipboard";
 import type { FormationEntry } from "@/types";
 
 type FormationsStore = ReturnType<typeof useFormations>;
 
+/** How long to wait, with no unsaved-change activity, before nagging for a backup. */
+const BACKUP_REMINDER_INTERVAL_MS = 15 * 60 * 1000;
+
+/**
+ * Drag-drop / click-to-upload / paste-from-clipboard image picker. Used both
+ * for adding a new formation and (in compact form) for replacing an existing
+ * one's image inline. Click or Tab into it, then Ctrl/Cmd+V to paste.
+ */
 function DropZone({
-  file,
+  imageUrl,
   onFile,
   compact = false,
 }: {
-  file: File | null;
+  /** Either a local object URL for a pending File, or an existing stored data URL. */
+  imageUrl: string | null;
   onFile: (f: File | null) => void;
   compact?: boolean;
 }) {
   const [isDragging, setIsDragging] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
-  const previewUrl = file ? URL.createObjectURL(file) : null;
 
   function handleDrop(e: DragEvent<HTMLDivElement>) {
     e.preventDefault();
@@ -30,16 +39,27 @@ function DropZone({
     if (dropped) onFile(dropped);
   }
 
+  function handlePaste(e: React.ClipboardEvent<HTMLDivElement>) {
+    const file = extractImageFileFromClipboard(e);
+    if (file) {
+      e.preventDefault();
+      onFile(file);
+    }
+  }
+
   return (
     <div
+      tabIndex={0}
       onDragOver={(e) => {
         e.preventDefault();
         setIsDragging(true);
       }}
       onDragLeave={() => setIsDragging(false)}
       onDrop={handleDrop}
+      onPaste={handlePaste}
       onClick={() => inputRef.current?.click()}
-      className={`flex ${compact ? "h-24" : "h-40"} cursor-pointer flex-col items-center justify-center gap-1.5 rounded-xl border-2 border-dashed px-3 text-center transition-colors ${
+      title="Click to browse, drag & drop, or paste an image (Ctrl/Cmd+V)"
+      className={`flex ${compact ? "h-24" : "h-40"} cursor-pointer flex-col items-center justify-center gap-1.5 rounded-xl border-2 border-dashed px-3 text-center transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${
         isDragging ? "border-primary bg-primary-soft" : "border-border-soft bg-surface-alt hover:bg-primary-softer"
       }`}
     >
@@ -48,19 +68,33 @@ function DropZone({
         type="file"
         accept="image/*"
         className="hidden"
-        onChange={(e) => onFile(e.target.files?.[0] ?? null)}
+        onChange={(e) => {
+          onFile(e.target.files?.[0] ?? null);
+          e.target.value = "";
+        }}
       />
-      {previewUrl ? (
+      {imageUrl ? (
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={previewUrl} alt="" className={`${compact ? "h-16" : "h-28"} rounded-lg object-contain`} />
+        <img src={imageUrl} alt="" className={`${compact ? "h-16" : "h-28"} rounded-lg object-contain`} />
       ) : (
         <>
-          <span className="text-xs font-medium text-text-body">Drag &amp; drop an image here, or click to browse</span>
+          <span className="text-xs font-medium text-text-body">Drag, click to browse, or paste (Ctrl/Cmd+V)</span>
           <span className="text-[11px] text-text-muted">A cropped snippet of the formation works best</span>
         </>
       )}
     </div>
   );
+}
+
+/** Turns a File into an object URL for local preview, revoking the previous one on change/unmount. */
+function useObjectUrl(file: File | null | undefined): string | null {
+  const url = useMemo(() => (file ? URL.createObjectURL(file) : null), [file]);
+  useEffect(() => {
+    return () => {
+      if (url) URL.revokeObjectURL(url);
+    };
+  }, [url]);
+  return url;
 }
 
 interface DraftFields {
@@ -81,21 +115,143 @@ function useCategoryOptions(formations: FormationEntry[]) {
   }, [formations]);
 }
 
-function MiniFormationRow({ f, onRemove }: { f: FormationEntry; onRemove: (id: string) => void }) {
+function ImageThumb({ src, size = "h-14 w-20" }: { src: string | null; size?: string }) {
+  if (!src) {
+    return (
+      <div className={`${size} rounded-lg bg-surface-alt border border-dashed border-border-soft flex items-center justify-center text-[10px] text-text-muted text-center px-1`}>
+        No image
+      </div>
+    );
+  }
+  // eslint-disable-next-line @next/next/no-img-element
+  return <img src={src} alt="" className={`${size} rounded-lg object-contain bg-surface-alt border border-border-soft`} />;
+}
+
+interface EditFields {
+  file?: File | null;
+  category: string;
+  subCategory: string;
+  detail: string;
+  trait: string;
+}
+
+function FormationRow({
+  f,
+  onRemove,
+  onUpdate,
+  showAdded = false,
+}: {
+  f: FormationEntry;
+  onRemove: (id: string) => void;
+  onUpdate: FormationsStore["updateFormation"];
+  showAdded?: boolean;
+}) {
+  const [isEditing, setIsEditing] = useState(false);
+  const [edit, setEdit] = useState<EditFields>({
+    category: f.category,
+    subCategory: f.subCategory,
+    detail: f.detail,
+    trait: f.trait,
+  });
+  const [isSaving, setIsSaving] = useState(false);
+  const editImageUrl = useObjectUrl(edit.file ?? null);
+  const displayImageUrl = edit.file === null ? null : edit.file ? editImageUrl : (f.imageDataUrl ?? null);
+
+  function startEdit() {
+    setEdit({ category: f.category, subCategory: f.subCategory, detail: f.detail, trait: f.trait });
+    setIsEditing(true);
+  }
+
+  async function handleSave() {
+    setIsSaving(true);
+    try {
+      await onUpdate(f.id, edit);
+      setIsEditing(false);
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  if (isEditing) {
+    return (
+      <tr className="border-b border-border-soft/60 last:border-0 bg-primary-softer/60">
+        <td className="py-2 px-2 align-top">
+          <DropZone imageUrl={displayImageUrl} onFile={(file) => setEdit({ ...edit, file })} compact />
+          {f.imageDataUrl && edit.file !== null && (
+            <button
+              onClick={() => setEdit({ ...edit, file: null })}
+              className="mt-1 block w-full text-[11px] text-text-muted hover:text-danger px-1.5 py-1 rounded-md"
+            >
+              Clear image
+            </button>
+          )}
+        </td>
+        <td className="py-2 px-2 align-top">
+          <input
+            value={edit.category}
+            onChange={(e) => setEdit({ ...edit, category: e.target.value })}
+            placeholder="Category"
+            className="w-full rounded-lg bg-surface px-2 py-1.5 text-sm"
+          />
+        </td>
+        <td className="py-2 px-2 align-top">
+          <input
+            value={edit.subCategory}
+            onChange={(e) => setEdit({ ...edit, subCategory: e.target.value })}
+            placeholder="Sub-category"
+            className="w-full rounded-lg bg-surface px-2 py-1.5 text-sm"
+          />
+        </td>
+        <td className="py-2 px-2 align-top">
+          <input
+            value={edit.detail}
+            onChange={(e) => setEdit({ ...edit, detail: e.target.value })}
+            placeholder="Detail"
+            className="w-full rounded-lg bg-surface px-2 py-1.5 text-sm"
+          />
+        </td>
+        <td className="py-2 px-2 align-top">
+          <input
+            value={edit.trait}
+            onChange={(e) => setEdit({ ...edit, trait: e.target.value })}
+            placeholder="Trait"
+            className="w-full rounded-lg bg-surface px-2 py-1.5 text-sm"
+          />
+        </td>
+        {showAdded && <td className="py-2 px-2 align-top text-text-muted whitespace-nowrap">{new Date(f.createdAt).toLocaleDateString()}</td>}
+        <td className="py-2 px-2 align-top text-right whitespace-nowrap">
+          <Button variant="primary" className="px-2.5 py-1 text-xs" disabled={isSaving} onClick={handleSave}>
+            {isSaving ? "Saving…" : "Save"}
+          </Button>
+          <Button variant="outline" className="px-2.5 py-1 text-xs ml-1.5" onClick={() => setIsEditing(false)}>
+            Cancel
+          </Button>
+        </td>
+      </tr>
+    );
+  }
+
   return (
     <tr className="border-b border-border-soft/60 last:border-0">
       <td className="py-2 px-2">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={f.imageDataUrl} alt="" className="h-14 w-20 rounded-lg object-contain bg-surface-alt border border-border-soft" />
+        <ImageThumb src={f.imageDataUrl ?? null} />
       </td>
       <td className="py-2 px-2 text-text-body whitespace-nowrap">{f.category || <span className="text-text-muted italic">—</span>}</td>
       <td className="py-2 px-2 text-text-body whitespace-nowrap">{f.subCategory || <span className="text-text-muted italic">—</span>}</td>
-      <td className="py-2 px-2 text-text-body max-w-[220px]">{f.detail}</td>
-      <td className="py-2 px-2 font-semibold text-primary-dark">{f.trait}</td>
-      <td className="py-2 px-2 text-right">
-        <button onClick={() => onRemove(f.id)} className="text-xs text-text-muted hover:text-danger" title="Remove">
+      <td className="py-2 px-2 text-text-body max-w-[220px]">{f.detail || <span className="text-text-muted italic">—</span>}</td>
+      <td className="py-2 px-2 font-semibold text-primary-dark">{f.trait || <span className="text-text-muted italic font-normal">—</span>}</td>
+      {showAdded && <td className="py-2 px-2 text-text-muted whitespace-nowrap">{new Date(f.createdAt).toLocaleDateString()}</td>}
+      <td className="py-2 px-2 text-right whitespace-nowrap">
+        <Button variant="outline" className="px-2.5 py-1 text-xs" onClick={startEdit}>
+          Edit
+        </Button>
+        <Button
+          variant="outline"
+          className="px-2.5 py-1 text-xs ml-1.5 hover:bg-danger-soft hover:text-[#8a3030] focus-visible:ring-danger/30"
+          onClick={() => onRemove(f.id)}
+        >
           Remove
-        </button>
+        </Button>
       </td>
     </tr>
   );
@@ -123,12 +279,15 @@ function EntryForm({
   compact?: boolean;
   submitLabel?: string;
 }) {
-  const canSubmit = !!draft.file && draft.detail.trim().length > 0 && draft.trait.trim().length > 0 && !isSaving;
+  const draftImageUrl = useObjectUrl(draft.file);
+  const hasContent =
+    !!draft.file || !!draft.category.trim() || !!draft.subCategory.trim() || !!draft.detail.trim() || !!draft.trait.trim();
+  const canSubmit = hasContent && !isSaving;
 
   return (
     <>
       <div className={`grid grid-cols-1 ${compact ? "sm:grid-cols-[160px_1fr_1fr_1fr_1fr_auto]" : "sm:grid-cols-2"} gap-3 items-start`}>
-        <DropZone file={draft.file} onFile={(file) => setDraft({ ...draft, file })} compact={compact} />
+        <DropZone imageUrl={draftImageUrl} onFile={(file) => setDraft({ ...draft, file })} compact={compact} />
         <div className={`flex flex-col gap-3 ${compact ? "contents" : ""}`}>
           <label className="text-xs font-medium text-text-body">
             {!compact && "Category"}
@@ -198,7 +357,7 @@ function EntryForm({
 }
 
 function AddFormationTab({ store }: { store: FormationsStore }) {
-  const { formations, addFormation, removeFormation } = store;
+  const { formations, addFormation, removeFormation, updateFormation } = store;
   const { categories, subCategories } = useCategoryOptions(formations);
   const [draft, setDraft] = useState<DraftFields>(EMPTY_DRAFT);
   const [isSaving, setIsSaving] = useState(false);
@@ -206,7 +365,6 @@ function AddFormationTab({ store }: { store: FormationsStore }) {
   const [sessionIds, setSessionIds] = useState<string[]>([]);
 
   async function handleSubmit() {
-    if (!draft.file) return;
     setIsSaving(true);
     setError(null);
     try {
@@ -229,8 +387,8 @@ function AddFormationTab({ store }: { store: FormationsStore }) {
         <CardTitle>Add a letter formation</CardTitle>
         <CardSubtitle>
           Upload an image of the formation, its category/sub-category, a short detail, and the trait it&apos;s said
-          to indicate. The form stays open after each add so you can enter several rows one after another. Saved in
-          your browser only.
+          to indicate — or save with only some fields filled in and fill in the rest later (edit any row below). The
+          form stays open after each add so you can enter several rows one after another. Saved in your browser only.
         </CardSubtitle>
         <div className="mt-4">
           <EntryForm
@@ -262,7 +420,7 @@ function AddFormationTab({ store }: { store: FormationsStore }) {
               </thead>
               <tbody>
                 {justAdded.map((f) => (
-                  <MiniFormationRow key={f.id} f={f} onRemove={removeFormation} />
+                  <FormationRow key={f.id} f={f} onRemove={removeFormation} onUpdate={updateFormation} />
                 ))}
               </tbody>
             </table>
@@ -274,14 +432,13 @@ function AddFormationTab({ store }: { store: FormationsStore }) {
 }
 
 function FormationTableTab({ store }: { store: FormationsStore }) {
-  const { formations, loaded, addFormation, removeFormation } = store;
+  const { formations, loaded, addFormation, removeFormation, updateFormation } = store;
   const { categories, subCategories } = useCategoryOptions(formations);
   const [draft, setDraft] = useState<DraftFields>(EMPTY_DRAFT);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   async function handleSubmit() {
-    if (!draft.file) return;
     setIsSaving(true);
     setError(null);
     try {
@@ -329,28 +486,7 @@ function FormationTableTab({ store }: { store: FormationsStore }) {
             </thead>
             <tbody>
               {formations.map((f) => (
-                <tr key={f.id} className="border-b border-border-soft/60 last:border-0">
-                  <td className="py-2 px-2">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={f.imageDataUrl} alt="" className="h-14 w-20 rounded-lg object-contain bg-surface-alt border border-border-soft" />
-                  </td>
-                  <td className="py-2 px-2 text-text-body whitespace-nowrap">{f.category || <span className="text-text-muted italic">—</span>}</td>
-                  <td className="py-2 px-2 text-text-body whitespace-nowrap">{f.subCategory || <span className="text-text-muted italic">—</span>}</td>
-                  <td className="py-2 px-2 text-text-body max-w-[220px]">{f.detail}</td>
-                  <td className="py-2 px-2 font-semibold text-primary-dark">{f.trait}</td>
-                  <td className="py-2 px-2 text-text-muted whitespace-nowrap">
-                    {new Date(f.createdAt).toLocaleDateString()}
-                  </td>
-                  <td className="py-2 px-2 text-right">
-                    <button
-                      onClick={() => removeFormation(f.id)}
-                      className="text-xs text-text-muted hover:text-danger"
-                      title="Remove"
-                    >
-                      Remove
-                    </button>
-                  </td>
-                </tr>
+                <FormationRow key={f.id} f={f} onRemove={removeFormation} onUpdate={updateFormation} showAdded />
               ))}
               {loaded && formations.length === 0 && (
                 <tr>
@@ -502,6 +638,58 @@ function BackupControls({ store }: { store: FormationsStore }) {
   );
 }
 
+/**
+ * Every 15 minutes while there are unsaved-to-backup changes (an add, edit,
+ * or remove since the last export/auto-backup), nudge the user to back up.
+ * "Saved" here means backed up externally — localStorage already persists
+ * every change immediately, so this is purely a reminder, not a data-loss
+ * risk in the moment; skipping it just means asking again in 15 more minutes.
+ */
+function BackupReminderModal({ store }: { store: FormationsStore }) {
+  const { hasUnsavedChanges, markBackedUp, exportFormations, formations } = store;
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setOpen((wasOpen) => wasOpen || hasUnsavedChanges);
+    }, BACKUP_REMINDER_INTERVAL_MS);
+    return () => clearInterval(timer);
+  }, [hasUnsavedChanges]);
+
+  if (!open || formations.length === 0) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 px-4" role="dialog" aria-modal="true">
+      <Card className="max-w-sm w-full">
+        <CardTitle>Back up your Letter Formations?</CardTitle>
+        <CardSubtitle>
+          It&apos;s been 15 minutes since your last backup and you&apos;ve made changes. Your data is already saved
+          in this browser, but exporting a backup file protects it if browser data ever gets cleared.
+        </CardSubtitle>
+        <div className="mt-4 flex justify-end gap-2">
+          <Button
+            variant="outline"
+            onClick={() => {
+              setOpen(false);
+              markBackedUp();
+            }}
+          >
+            Continue without saving
+          </Button>
+          <Button
+            onClick={() => {
+              exportFormations();
+              setOpen(false);
+            }}
+          >
+            Export now
+          </Button>
+        </div>
+      </Card>
+    </div>
+  );
+}
+
 export function FormationsPanel() {
   const store = useFormations();
   const [subTab, setSubTab] = useState<FormationsSubTab>("add");
@@ -536,6 +724,8 @@ export function FormationsPanel() {
 
       {subTab === "add" && <AddFormationTab store={store} />}
       {subTab === "table" && <FormationTableTab store={store} />}
+
+      <BackupReminderModal store={store} />
     </div>
   );
 }

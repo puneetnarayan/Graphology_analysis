@@ -187,7 +187,23 @@ formation, paired with the trait it's said to indicate. It has two sub-tabs:
   appears in a running list right below the form.
 - **Formation Library**: the same add form in a compact, table-row layout, plus a table of
   every formation you've saved — image thumbnail, category, sub-category, detail, trait, and
-  a remove action.
+  Edit/Remove actions.
+
+**Incomplete entries are fine.** You don't need every field to save a row — add just a trait
+you want to remember, or just an image with no detail yet, and fill in the rest later. The
+only requirement is that at least one field or the image isn't blank (a fully empty row is
+rejected).
+
+**Inline editing.** Click **Edit** on any row (in either sub-tab's table) to edit its
+category, sub-category, detail, and trait in place, and to replace or clear its image — the
+image cell becomes the same drag-drop/upload/paste picker used when adding. **Save** commits
+the change immediately (into localStorage and, if connected, the auto-backup file); **Cancel**
+discards it.
+
+**Paste from clipboard.** Every image picker in the app — the main handwriting sample upload,
+and every Formation image field (adding a new one or editing an existing one's image) — accepts
+a pasted image in addition to drag-and-drop and click-to-browse. Click or Tab into the drop
+area first (so it has focus), then Ctrl/Cmd+V.
 
 **Where the data lives.** Entries (including the images, downscaled to keep storage light)
 are saved to this browser's `localStorage`, not to any server — consistent with the rest of
@@ -215,6 +231,13 @@ your browser's site data for this app removes it, which is exactly why backup ex
 
 Both paths write the same JSON shape, so a file saved by auto-backup can also be restored via
 Import, and vice versa.
+
+**Periodic backup reminder.** While there are changes (an add, edit, or remove) that haven't
+been exported or auto-backed-up yet, a popup appears every 15 minutes prompting you to back
+up, with **Export now** or **Continue without saving** (dismiss and get asked again in another
+15 minutes if still unsaved). This is a nudge, not a data-loss warning — every change is
+already saved to localStorage immediately; the reminder is only about the external-backup
+safety net described above.
 
 **Not wired into the rule engine.** This is a reference library you curate, not an input to
 the automated analysis — entries here do not feed the graphology rule engine, trait scoring,

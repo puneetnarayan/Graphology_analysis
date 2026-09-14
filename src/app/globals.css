@@ -76,6 +76,31 @@
   border-color: var(--border-soft);
 }
 
+/*
+ * App-wide interactive-element baseline: every button/link gets a visible
+ * border and visibly darkens on hover/focus, even ones styled ad hoc with
+ * Tailwind utilities elsewhere. A more specific class (e.g. `border-transparent`,
+ * a custom `border-*` color) still wins via normal cascade specificity.
+ */
+button:not(:disabled),
+a {
+  border-width: 1px;
+  border-style: solid;
+  border-color: var(--border-soft);
+}
+
+button:not(:disabled):hover,
+button:not(:disabled):focus-visible,
+a:hover,
+a:focus-visible {
+  filter: brightness(0.93);
+}
+
+button:not(:disabled):active,
+a:active {
+  filter: brightness(0.87);
+}
+
 body {
   background: var(--background);
   color: var(--text-body);

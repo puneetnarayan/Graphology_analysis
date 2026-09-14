@@ -51,6 +51,16 @@ function newId(): string {
 
 export type AutoBackupStatus = "unsupported" | "disabled" | "active" | "permission-needed" | "error";
 
+function hasAnyContent(fields: { category?: string; subCategory?: string; detail?: string; trait?: string }, hasImage: boolean): boolean {
+  return (
+    hasImage ||
+    !!fields.category?.trim() ||
+    !!fields.subCategory?.trim() ||
+    !!fields.detail?.trim() ||
+    !!fields.trait?.trim()
+  );
+}
+
 /**
  * Client-side, browser-local library of user-contributed letter-formation
  * examples (image + detail + trait). Stored in localStorage — the reference
@@ -77,6 +87,8 @@ export function useFormations() {
   // dependent on this list, so there's nothing to hydrate-mismatch against.
   const [formations, setFormations] = useState<FormationEntry[]>(() => readFromStorage());
   const [loaded] = useState(true);
+  /** True once something has changed since the last export/backup-file write — drives the periodic backup reminder. */
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
 
   const supported = typeof window !== "undefined" && typeof window.showSaveFilePicker === "function";
 
@@ -119,6 +131,7 @@ export function useFormations() {
       setLastBackupAt(new Date().toISOString());
       setAutoBackupStatus("active");
       setAutoBackupError(null);
+      setHasUnsavedChanges(false);
     } catch (err) {
       setAutoBackupStatus("error");
       setAutoBackupError(err instanceof Error ? err.message : "Auto-backup write failed.");
@@ -194,9 +207,17 @@ export function useFormations() {
     await clearBackupHandle();
   }, [supported]);
 
+  /**
+   * `file` is optional — incomplete entries (e.g. a trait you want to note
+   * down before you have an image for it) are allowed, as long as at least
+   * one field isn't blank. Throws if every field would be empty.
+   */
   const addFormation = useCallback(
-    async (file: File, detail: string, trait: string, category: string, subCategory: string) => {
-      const imageDataUrl = await fileToStoredDataUrl(file);
+    async (file: File | null, detail: string, trait: string, category: string, subCategory: string) => {
+      if (!hasAnyContent({ category, subCategory, detail, trait }, !!file)) {
+        throw new Error("Add at least an image or one field before saving.");
+      }
+      const imageDataUrl = file ? await fileToStoredDataUrl(file) : undefined;
       const entry: FormationEntry = {
         id: newId(),
         imageDataUrl,
@@ -211,7 +232,39 @@ export function useFormations() {
         writeToStorage(next);
         return next;
       });
+      setHasUnsavedChanges(true);
       return entry;
+    },
+    [],
+  );
+
+  /**
+   * Inline-edits an existing entry. `file === null` clears the image,
+   * `file === undefined` (the default) leaves it untouched, and a `File`
+   * replaces it — covers drag-drop/upload/paste-driven image replacement.
+   */
+  const updateFormation = useCallback(
+    async (
+      id: string,
+      patch: { file?: File | null; detail?: string; trait?: string; category?: string; subCategory?: string },
+    ) => {
+      const imageDataUrl = patch.file === undefined ? undefined : patch.file === null ? null : await fileToStoredDataUrl(patch.file);
+      setFormations((prev) => {
+        const next = prev.map((f) => {
+          if (f.id !== id) return f;
+          return {
+            ...f,
+            ...(imageDataUrl === undefined ? {} : { imageDataUrl: imageDataUrl ?? undefined }),
+            ...(patch.detail !== undefined ? { detail: patch.detail.trim() } : {}),
+            ...(patch.trait !== undefined ? { trait: patch.trait.trim() } : {}),
+            ...(patch.category !== undefined ? { category: patch.category.trim() } : {}),
+            ...(patch.subCategory !== undefined ? { subCategory: patch.subCategory.trim() } : {}),
+          };
+        });
+        writeToStorage(next);
+        return next;
+      });
+      setHasUnsavedChanges(true);
     },
     [],
   );
@@ -222,7 +275,11 @@ export function useFormations() {
       writeToStorage(next);
       return next;
     });
+    setHasUnsavedChanges(true);
   }, []);
+
+  /** Call after a manual export or an auto-backup write to clear the "unsaved" reminder state. */
+  const markBackedUp = useCallback(() => setHasUnsavedChanges(false), []);
 
   /** Downloads the current library as a JSON file — works in every browser, no permissions needed. */
   const exportFormations = useCallback(() => {
@@ -236,6 +293,7 @@ export function useFormations() {
     a.click();
     a.remove();
     URL.revokeObjectURL(url);
+    setHasUnsavedChanges(false);
   }, [formations]);
 
   /**
@@ -278,7 +336,10 @@ export function useFormations() {
   return {
     formations,
     loaded,
+    hasUnsavedChanges,
+    markBackedUp,
     addFormation,
+    updateFormation,
     removeFormation,
     exportFormations,
     importFormations,

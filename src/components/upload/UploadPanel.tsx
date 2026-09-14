@@ -4,6 +4,7 @@ import { useCallback, useRef, useState } from "react";
 import { useWorkflow } from "@/state/workflowStore";
 import { Card, CardTitle, CardSubtitle } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
+import { extractImageFileFromClipboard } from "@/utils/clipboard";
 
 const ACCEPTED_TYPES = ["image/jpeg", "image/png", "image/webp"];
 
@@ -32,16 +33,17 @@ export function UploadPanel() {
 
   const onPaste = useCallback(
     (e: React.ClipboardEvent) => {
-      const items = Array.from(e.clipboardData.items);
-      const imageItem = items.find((i) => i.type.startsWith("image/"));
-      const file = imageItem?.getAsFile();
-      if (file) handleFiles([file]);
+      const file = extractImageFileFromClipboard(e);
+      if (file) {
+        e.preventDefault();
+        handleFiles([file]);
+      }
     },
     [handleFiles],
   );
 
   return (
-    <div className="flex flex-col gap-6" onPaste={onPaste}>
+    <div className="flex flex-col gap-6">
       <div>
         <h2 className="text-xl font-semibold text-text-strong">Upload Handwriting Sample</h2>
         <p className="text-sm text-text-muted mt-1">
@@ -54,6 +56,8 @@ export function UploadPanel() {
         className={`overflow-hidden transition-colors ${isDragging ? "ring-2 ring-primary" : ""}`}
       >
         <div
+          tabIndex={0}
+          onPaste={onPaste}
           onDragOver={(e) => {
             e.preventDefault();
             setIsDragging(true);
@@ -64,7 +68,8 @@ export function UploadPanel() {
             setIsDragging(false);
             if (e.dataTransfer.files.length) handleFiles(e.dataTransfer.files);
           }}
-          className="flex flex-col items-center justify-center gap-4 px-6 py-16 text-center bg-gradient-to-b from-primary-softer to-surface"
+          title="Click Choose File, drag & drop, or click here then paste an image (Ctrl/Cmd+V)"
+          className="flex flex-col items-center justify-center gap-4 px-6 py-16 text-center bg-gradient-to-b from-primary-softer to-surface focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
         >
           <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-primary-soft text-3xl text-primary-dark font-handwritten">
             ✎
