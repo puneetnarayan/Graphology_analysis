@@ -178,9 +178,10 @@ The **Letter Formations** tab is a personal, browser-local reference library for
 graphology "cheat sheet" example you might collect by hand — a picture of a specific letter
 formation, paired with the trait it's said to indicate. It has two sub-tabs:
 
-- **Formation Library** (default): a two-column layout — the entry form sits in a left column
-  next to the workflow sidebar, and the table of every saved formation fills the rest of the
-  page to its right. Entry fields:
+- **Formation Library** (default): the entry form sits in a full-width card at the top of the
+  page (wide fields, so longer detail/trait text is readable while typing — not squeezed into a
+  narrow sidebar column), and the table of every saved formation fills the full browser width
+  below it. Entry fields:
   - **Parameter** — which handwriting-analysis parameter this formation is about, chosen from a
     dropdown of `HANDWRITING_PARAMETERS` (`src/types/formations.ts`): the *same vocabulary* as
     the app's own Analysis tabs (Slant, Size, Pressure, Baseline, Spacing, Margins, Zones,
@@ -196,12 +197,29 @@ formation, paired with the trait it's said to indicate. It has two sub-tabs:
   - **Sub-category** — narrower grouping within the parameter, e.g. "Garland", "Angular".
   - **Detail** — free-text description, e.g. "Wavy line — no angles, just curves".
   - **Trait** — the personality trait/aspect it's said to indicate, e.g. "Diplomatic".
+  - **Tag** — whether that trait reads **Positive**, **Negative**, or **Medium** (`FORMATION_TAGS`
+    in `src/types/formations.ts`), shown as a colored badge in the table (green/red/amber) and
+    filterable — a quick way to pull up just the flattering or just the cautionary indicators.
+    Optional; unset shows as unspecified rather than defaulting to any one value.
 
-  The table shows all of the above plus an image thumbnail, date added, and Edit/Remove. The
-  form stays put and ready after each add (with Parameter/Character/Sub-category retained) so
-  you can add several related rows in a row; each new entry appears at the top of the table
-  immediately, right next to the form that made it.
+  The table shows all of the above plus an image thumbnail, date added, and Edit/Remove, and
+  has its own toolbar above it:
+  - A **search box** matching against parameter, character, sub-category, detail, and trait.
+  - **Tag filter chips** (All / Positive / Negative / Medium).
+  - **Parameter filter chips**, generated from whatever parameters are actually in use.
+  - A **Group by** dropdown (None / Parameter / Character / Tag) that renders collapsible group
+    headers (click to expand/collapse) instead of one flat list — useful once the library has
+    enough rows that scanning it unsorted stops being practical.
+
+  The form stays put and ready after each add (with Parameter/Character/Sub-category/Tag
+  retained) so you can add several related rows in a row; each new entry appears at the top of
+  the table immediately, right below the form that made it.
 - **Backup & Restore**: export/import and automatic-backup controls (see below), as its own tab.
+
+**Collapsible sidebar.** The workflow sidebar (Upload Sample, Image Preparation, ... Letter
+Formations) has a hamburger (☰) toggle at its top that collapses it to an icon-only rail —
+useful for giving the Letter Formations table (or any other wide content) more horizontal room.
+The preference persists across reloads in this browser (`src/components/layout/Sidebar.tsx`).
 
 **Parameter/Character split, and what happens to older entries.** Earlier versions of this
 feature had a single free-text "Category" field, which in practice often got used as a stand-in

@@ -1,13 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type DragEvent } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, type DragEvent } from "react";
 import { Card, CardTitle, CardSubtitle } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { FORMATIONS_SUB_TABS, type FormationsSubTab } from "@/state/navigation";
 import { useFormations } from "@/state/useFormations";
 import { extractImageFileFromClipboard } from "@/utils/clipboard";
-import { HANDWRITING_PARAMETERS, type FormationEntry } from "@/types";
+import { HANDWRITING_PARAMETERS, FORMATION_TAGS, FORMATION_TAG_LABELS, type FormationEntry, type FormationTag } from "@/types";
 
 type FormationsStore = ReturnType<typeof useFormations>;
 
@@ -114,12 +114,41 @@ interface DraftFields {
   subCategory: string;
   detail: string;
   trait: string;
+  tag: FormationTag | "";
 }
 
-const EMPTY_DRAFT: DraftFields = { file: null, parameter: "", character: "", subCategory: "", detail: "", trait: "" };
+const EMPTY_DRAFT: DraftFields = { file: null, parameter: "", character: "", subCategory: "", detail: "", trait: "", tag: "" };
 
 function useSubCategoryOptions(formations: FormationEntry[]) {
   return useMemo(() => Array.from(new Set(formations.map((f) => f.subCategory).filter(Boolean))), [formations]);
+}
+
+const TAG_BADGE_TONE: Record<FormationTag, "success" | "danger" | "warning"> = {
+  positive: "success",
+  negative: "danger",
+  medium: "warning",
+};
+
+function TagBadge({ tag }: { tag?: FormationTag }) {
+  if (!tag) return <span className="text-text-muted italic text-xs">—</span>;
+  return <Badge tone={TAG_BADGE_TONE[tag]}>{FORMATION_TAG_LABELS[tag]}</Badge>;
+}
+
+function TagField({ value, onChange, compact = false }: { value: FormationTag | ""; onChange: (v: FormationTag | "") => void; compact?: boolean }) {
+  return (
+    <select
+      value={value}
+      onChange={(e) => onChange(e.target.value as FormationTag | "")}
+      className={`w-full rounded-lg bg-surface text-sm h-10 ${compact ? "px-2" : "border border-border-soft px-3"}`}
+    >
+      <option value="">Unspecified</option>
+      {FORMATION_TAGS.map((t) => (
+        <option key={t} value={t}>
+          {FORMATION_TAG_LABELS[t]}
+        </option>
+      ))}
+    </select>
+  );
 }
 
 /**
@@ -201,6 +230,7 @@ interface EditFields {
   subCategory: string;
   detail: string;
   trait: string;
+  tag: FormationTag | "";
 }
 
 function FormationRow({
@@ -221,13 +251,21 @@ function FormationRow({
     subCategory: f.subCategory,
     detail: f.detail,
     trait: f.trait,
+    tag: f.tag ?? "",
   });
   const [isSaving, setIsSaving] = useState(false);
   const editImageUrl = useObjectUrl(edit.file ?? null);
   const displayImageUrl = edit.file === null ? null : edit.file ? editImageUrl : (f.imageDataUrl ?? null);
 
   function startEdit() {
-    setEdit({ parameter: f.parameter, character: f.character ?? "", subCategory: f.subCategory, detail: f.detail, trait: f.trait });
+    setEdit({
+      parameter: f.parameter,
+      character: f.character ?? "",
+      subCategory: f.subCategory,
+      detail: f.detail,
+      trait: f.trait,
+      tag: f.tag ?? "",
+    });
     setIsEditing(true);
   }
 
@@ -291,6 +329,9 @@ function FormationRow({
             className="w-full rounded-lg bg-surface px-2 py-1.5 text-sm"
           />
         </td>
+        <td className="py-2 px-2 align-top">
+          <TagField value={edit.tag} onChange={(v) => setEdit({ ...edit, tag: v })} compact />
+        </td>
         {showAdded && <td className="py-2 px-2 align-top text-text-muted whitespace-nowrap">{formatDateDMY(f.createdAt)}</td>}
         <td className="py-2 px-2 align-top text-right whitespace-nowrap">
           <Button variant="primary" className="px-2.5 py-1 text-xs" disabled={isSaving} onClick={handleSave}>
@@ -314,6 +355,9 @@ function FormationRow({
       <td className="py-2 px-2 text-text-body whitespace-nowrap">{f.subCategory || <span className="text-text-muted italic">—</span>}</td>
       <td className="py-2 px-2 text-text-body max-w-[220px]">{f.detail || <span className="text-text-muted italic">—</span>}</td>
       <td className="py-2 px-2 font-semibold text-primary-dark">{f.trait || <span className="text-text-muted italic font-normal">—</span>}</td>
+      <td className="py-2 px-2 whitespace-nowrap">
+        <TagBadge tag={f.tag} />
+      </td>
       {showAdded && <td className="py-2 px-2 text-text-muted whitespace-nowrap">{formatDateDMY(f.createdAt)}</td>}
       <td className="py-2 px-2 text-right whitespace-nowrap">
         <Button variant="outline" className="px-2.5 py-1 text-xs" onClick={startEdit}>
@@ -332,6 +376,12 @@ function FormationRow({
 }
 
 /** Shared entry form: parameter, character, sub-category, detail, trait + image. Used on both sub-tabs. */
+/**
+ * Wide, full-width entry form: an image picker beside a grid of fields that
+ * spreads out across the available width (rather than being squeezed into a
+ * narrow sidebar column), so longer detail/trait text is actually readable
+ * while typing.
+ */
 function EntryForm({
   draft,
   setDraft,
@@ -339,7 +389,6 @@ function EntryForm({
   isSaving,
   error,
   subCategories,
-  compact = false,
   submitLabel = "Add to Formation Library",
 }: {
   draft: DraftFields;
@@ -348,7 +397,6 @@ function EntryForm({
   isSaving: boolean;
   error: string | null;
   subCategories: string[];
-  compact?: boolean;
   submitLabel?: string;
 }) {
   const draftImageUrl = useObjectUrl(draft.file);
@@ -363,58 +411,59 @@ function EntryForm({
 
   return (
     <>
-      <div className={`grid grid-cols-1 ${compact ? "sm:grid-cols-[160px_1fr_90px_1fr_1fr_1fr_auto]" : "sm:grid-cols-2"} gap-3 items-start`}>
-        <DropZone imageUrl={draftImageUrl} onFile={(file) => setDraft({ ...draft, file })} compact={compact} />
-        <div className={`flex flex-col gap-3 ${compact ? "contents" : ""}`}>
+      <div className="grid grid-cols-1 lg:grid-cols-[220px_1fr] gap-4 items-start">
+        <DropZone imageUrl={draftImageUrl} onFile={(file) => setDraft({ ...draft, file })} />
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
           <label className="text-xs font-medium text-text-body">
-            {!compact && "Parameter"}
-            <div className={compact ? "" : "mt-1"}>
-              <ParameterField value={draft.parameter} onChange={(v) => setDraft({ ...draft, parameter: v })} compact={compact} />
+            Parameter
+            <div className="mt-1">
+              <ParameterField value={draft.parameter} onChange={(v) => setDraft({ ...draft, parameter: v })} />
             </div>
           </label>
           <label className="text-xs font-medium text-text-body">
-            {!compact && "Character"}
+            Character
             <input
               value={draft.character}
               onChange={(e) => setDraft({ ...draft, character: e.target.value })}
-              placeholder='Character (e.g. "t") — optional'
+              placeholder='e.g. "t" — optional'
               maxLength={4}
               className="mt-1 w-full rounded-lg border border-border-soft bg-surface px-3 py-2 text-sm h-10 focus:outline-none focus:ring-2 focus:ring-primary/30"
             />
           </label>
           <label className="text-xs font-medium text-text-body">
-            {!compact && "Sub-category"}
+            Sub-category
             <input
               value={draft.subCategory}
               onChange={(e) => setDraft({ ...draft, subCategory: e.target.value })}
-              placeholder="Sub-category (e.g. Garland)"
+              placeholder="e.g. Garland"
               list="formation-subcategories"
               className="mt-1 w-full rounded-lg border border-border-soft bg-surface px-3 py-2 text-sm h-10 focus:outline-none focus:ring-2 focus:ring-primary/30"
             />
           </label>
-          <label className="text-xs font-medium text-text-body">
-            {!compact && "Detail of the formation"}
+          <label className="text-xs font-medium text-text-body sm:col-span-2">
+            Detail of the formation
             <input
               value={draft.detail}
               onChange={(e) => setDraft({ ...draft, detail: e.target.value })}
-              placeholder='Detail (e.g. "Wavy line — no angles, just curves")'
+              placeholder='e.g. "Wavy line — no angles, just curves"'
               className="mt-1 w-full rounded-lg border border-border-soft bg-surface px-3 py-2 text-sm h-10 focus:outline-none focus:ring-2 focus:ring-primary/30"
             />
           </label>
           <label className="text-xs font-medium text-text-body">
-            {!compact && "Trait / personality aspect"}
+            Trait / personality aspect
             <input
               value={draft.trait}
               onChange={(e) => setDraft({ ...draft, trait: e.target.value })}
-              placeholder='Trait (e.g. "Diplomatic")'
+              placeholder='e.g. "Diplomatic"'
               className="mt-1 w-full rounded-lg border border-border-soft bg-surface px-3 py-2 text-sm h-10 focus:outline-none focus:ring-2 focus:ring-primary/30"
             />
           </label>
-          {compact && (
-            <Button disabled={!canSubmit} onClick={onSubmit} className="h-10">
-              {isSaving ? "Adding…" : "Add"}
-            </Button>
-          )}
+          <label className="text-xs font-medium text-text-body">
+            Tag
+            <div className="mt-1">
+              <TagField value={draft.tag} onChange={(v) => setDraft({ ...draft, tag: v })} />
+            </div>
+          </label>
         </div>
       </div>
       <datalist id="formation-subcategories">
@@ -423,13 +472,11 @@ function EntryForm({
         ))}
       </datalist>
       {error && <p className="mt-2 text-xs text-danger">{error}</p>}
-      {!compact && (
-        <div className="mt-4 flex justify-end">
-          <Button disabled={!canSubmit} onClick={onSubmit}>
-            {isSaving ? "Saving…" : submitLabel}
-          </Button>
-        </div>
-      )}
+      <div className="mt-4 flex justify-end">
+        <Button disabled={!canSubmit} onClick={onSubmit}>
+          {isSaving ? "Saving…" : submitLabel}
+        </Button>
+      </div>
     </>
   );
 }
@@ -440,8 +487,191 @@ function EntryForm({
  * There's no separate "add" tab — this form is always here, and whatever you
  * add appears immediately at the top of the table beside it.
  */
+type GroupBy = "none" | "parameter" | "character" | "tag";
+
+function FilterChip({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      onClick={onClick}
+      className={`rounded-full px-2.5 py-1 text-xs whitespace-nowrap ${active ? "bg-primary text-white" : "bg-surface-alt text-text-muted hover:text-text-strong"}`}
+    >
+      {children}
+    </button>
+  );
+}
+
+const TABLE_COLUMN_COUNT = 9;
+
+/**
+ * The saved-formations table: full width, with search, Parameter/Tag filter
+ * chips, and an optional Group-by (Parameter / Character / Tag) that renders
+ * collapsible group headers instead of one flat list.
+ */
+function FormationsTable({ store }: { store: FormationsStore }) {
+  const { formations, loaded, removeFormation, updateFormation } = store;
+  const [search, setSearch] = useState("");
+  const [parameterFilter, setParameterFilter] = useState<string>("all");
+  const [tagFilter, setTagFilter] = useState<string>("all");
+  const [groupBy, setGroupBy] = useState<GroupBy>("none");
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
+
+  const parameters = useMemo(
+    () => Array.from(new Set(formations.map((f) => f.parameter).filter(Boolean))).sort((a, b) => a.localeCompare(b)),
+    [formations],
+  );
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return formations.filter((f) => {
+      if (parameterFilter !== "all" && f.parameter !== parameterFilter) return false;
+      if (tagFilter !== "all" && (f.tag ?? "") !== tagFilter) return false;
+      if (q) {
+        const haystack = [f.parameter, f.character, f.subCategory, f.detail, f.trait].filter(Boolean).join(" ").toLowerCase();
+        if (!haystack.includes(q)) return false;
+      }
+      return true;
+    });
+  }, [formations, parameterFilter, tagFilter, search]);
+
+  const groups = useMemo(() => {
+    if (groupBy === "none") return [{ key: "__all__", label: null as string | null, items: filtered }];
+    const map = new Map<string, FormationEntry[]>();
+    for (const f of filtered) {
+      const key =
+        groupBy === "parameter"
+          ? f.parameter || "(no parameter)"
+          : groupBy === "character"
+            ? f.character || "(no character)"
+            : f.tag
+              ? FORMATION_TAG_LABELS[f.tag]
+              : "Unspecified";
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(f);
+    }
+    return Array.from(map.entries())
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([key, items]) => ({ key, label: key as string | null, items }));
+  }, [filtered, groupBy]);
+
+  function toggleGroup(key: string) {
+    setCollapsedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
+
+  return (
+    <Card padding="p-3">
+      <div className="flex flex-wrap items-center gap-2 px-2 pt-1 pb-3">
+        <input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search parameter, character, detail, trait…"
+          className="flex-1 min-w-[200px] rounded-lg border border-border-soft bg-surface px-3 py-2 text-sm h-9 focus:outline-none focus:ring-2 focus:ring-primary/30"
+        />
+        <select
+          value={groupBy}
+          onChange={(e) => setGroupBy(e.target.value as GroupBy)}
+          className="rounded-lg border border-border-soft bg-surface px-2 text-sm h-9"
+        >
+          <option value="none">No grouping</option>
+          <option value="parameter">Group by Parameter</option>
+          <option value="character">Group by Character</option>
+          <option value="tag">Group by Tag</option>
+        </select>
+      </div>
+
+      <div className="flex flex-wrap gap-1.5 px-2 pb-2">
+        <FilterChip active={tagFilter === "all"} onClick={() => setTagFilter("all")}>
+          All tags
+        </FilterChip>
+        {FORMATION_TAGS.map((t) => (
+          <FilterChip key={t} active={tagFilter === t} onClick={() => setTagFilter(t)}>
+            {FORMATION_TAG_LABELS[t]}
+          </FilterChip>
+        ))}
+      </div>
+
+      {parameters.length > 0 && (
+        <div className="flex flex-wrap gap-1.5 px-2 pb-3 border-b border-border-soft mb-2">
+          <FilterChip active={parameterFilter === "all"} onClick={() => setParameterFilter("all")}>
+            All parameters
+          </FilterChip>
+          {parameters.map((p) => (
+            <FilterChip key={p} active={parameterFilter === p} onClick={() => setParameterFilter(p)}>
+              {p}
+            </FilterChip>
+          ))}
+        </div>
+      )}
+
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-left text-text-muted border-b border-border-soft">
+              <th className="py-2 px-2 font-medium">Formation</th>
+              <th className="py-2 px-2 font-medium">Parameter</th>
+              <th className="py-2 px-2 font-medium">Character</th>
+              <th className="py-2 px-2 font-medium">Sub-category</th>
+              <th className="py-2 px-2 font-medium">Detail</th>
+              <th className="py-2 px-2 font-medium">Trait</th>
+              <th className="py-2 px-2 font-medium">Tag</th>
+              <th className="py-2 px-2 font-medium">Added</th>
+              <th className="py-2 px-2 font-medium"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {groups.map((g) => (
+              <Fragment key={g.key}>
+                {g.label !== null && (
+                  <tr>
+                    <td colSpan={TABLE_COLUMN_COUNT} className="pt-3 pb-1 px-2">
+                      <button
+                        onClick={() => toggleGroup(g.key)}
+                        className="flex items-center gap-1.5 text-xs font-semibold text-text-strong px-2 py-1 rounded-lg hover:bg-surface-alt"
+                      >
+                        <span className="text-text-muted">{collapsedGroups.has(g.key) ? "▶" : "▼"}</span>
+                        {g.label} <span className="text-text-muted font-normal">({g.items.length})</span>
+                      </button>
+                    </td>
+                  </tr>
+                )}
+                {!collapsedGroups.has(g.key) &&
+                  g.items.map((f) => <FormationRow key={f.id} f={f} onRemove={removeFormation} onUpdate={updateFormation} showAdded />)}
+              </Fragment>
+            ))}
+            {loaded && formations.length === 0 && (
+              <tr>
+                <td colSpan={TABLE_COLUMN_COUNT} className="py-6 text-center text-sm text-text-muted">
+                  No formations yet. Add one above.
+                </td>
+              </tr>
+            )}
+            {loaded && formations.length > 0 && filtered.length === 0 && (
+              <tr>
+                <td colSpan={TABLE_COLUMN_COUNT} className="py-6 text-center text-sm text-text-muted">
+                  No formations match this search/filter.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </Card>
+  );
+}
+
+/**
+ * The Formation Library sub-tab: the entry form sits in a full-width card
+ * above the table (so its fields have room to show longer text while
+ * typing), and the table below spans the full page width. There's no
+ * separate "add" tab — this form is always here, and whatever you add
+ * appears immediately at the top of the table beneath it.
+ */
 function FormationLibraryTab({ store }: { store: FormationsStore }) {
-  const { formations, loaded, addFormation, removeFormation, updateFormation } = store;
+  const { formations, addFormation } = store;
   const subCategories = useSubCategoryOptions(formations);
   const [draft, setDraft] = useState<DraftFields>(EMPTY_DRAFT);
   const [isSaving, setIsSaving] = useState(false);
@@ -451,9 +681,25 @@ function FormationLibraryTab({ store }: { store: FormationsStore }) {
     setIsSaving(true);
     setError(null);
     try {
-      await addFormation(draft.file, draft.detail, draft.trait, draft.parameter, draft.character, draft.subCategory);
-      // Keep parameter/character/sub-category (usually stay the same for a run of related entries); clear the rest.
-      setDraft({ file: null, parameter: draft.parameter, character: draft.character, subCategory: draft.subCategory, detail: "", trait: "" });
+      await addFormation({
+        file: draft.file,
+        detail: draft.detail,
+        trait: draft.trait,
+        parameter: draft.parameter,
+        character: draft.character,
+        subCategory: draft.subCategory,
+        tag: draft.tag,
+      });
+      // Keep parameter/character/sub-category/tag (usually stay the same for a run of related entries); clear the rest.
+      setDraft({
+        file: null,
+        parameter: draft.parameter,
+        character: draft.character,
+        subCategory: draft.subCategory,
+        detail: "",
+        trait: "",
+        tag: draft.tag,
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not save this formation.");
     } finally {
@@ -462,50 +708,22 @@ function FormationLibraryTab({ store }: { store: FormationsStore }) {
   }
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-4 items-start">
-      <Card className="lg:sticky lg:top-4">
+    <div className="flex flex-col gap-4">
+      <Card>
         <CardTitle>Add a letter formation</CardTitle>
         <CardSubtitle>
           Upload an image, the handwriting-analysis parameter it&apos;s about (the same categories used in
-          Analysis), the specific character if relevant, a short detail, and the trait it&apos;s said to indicate —
-          or save with only some fields filled in and fill in the rest later via Edit. New entries appear at the top
-          of the table, and the form stays ready for the next one.
+          Analysis), the specific character if relevant, a short detail, the trait it&apos;s said to indicate, and
+          whether that trait reads positive/negative/medium — or save with only some fields filled in and fill in
+          the rest later via Edit. New entries appear at the top of the table below, and the form stays ready for
+          the next one.
         </CardSubtitle>
         <div className="mt-4">
           <EntryForm draft={draft} setDraft={setDraft} onSubmit={handleSubmit} isSaving={isSaving} error={error} subCategories={subCategories} />
         </div>
       </Card>
 
-      <Card padding="p-3">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-left text-text-muted border-b border-border-soft">
-                <th className="py-2 px-2 font-medium">Formation</th>
-                <th className="py-2 px-2 font-medium">Parameter</th>
-                <th className="py-2 px-2 font-medium">Character</th>
-                <th className="py-2 px-2 font-medium">Sub-category</th>
-                <th className="py-2 px-2 font-medium">Detail</th>
-                <th className="py-2 px-2 font-medium">Trait</th>
-                <th className="py-2 px-2 font-medium">Added</th>
-                <th className="py-2 px-2 font-medium"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {formations.map((f) => (
-                <FormationRow key={f.id} f={f} onRemove={removeFormation} onUpdate={updateFormation} showAdded />
-              ))}
-              {loaded && formations.length === 0 && (
-                <tr>
-                  <td colSpan={8} className="py-6 text-center text-sm text-text-muted">
-                    No formations yet. Add one on the left.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </Card>
+      <FormationsTable store={store} />
     </div>
   );
 }

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { loadImageElement, imageElementToCanvas, toAnalysisCanvas } from "@/utils/canvas";
 import { saveBackupHandle, loadBackupHandle, clearBackupHandle } from "@/utils/fileHandleStore";
 import { dbGetAll, dbPut, dbDelete, dbClear, dbBulkPut, migrateFromLocalStorage, normalizeFormationEntry } from "@/utils/formationsDb";
-import type { FormationEntry } from "@/types";
+import type { FormationEntry, FormationTag } from "@/types";
 
 /** Formation reference images are small illustrative crops, not full samples — keep them light. */
 const MAX_FORMATION_IMAGE_DIM = 400;
@@ -226,14 +226,16 @@ export function useFormations() {
    * one field isn't blank. Throws if every field would be empty.
    */
   const addFormation = useCallback(
-    async (
-      file: File | null,
-      detail: string,
-      trait: string,
-      parameter: string,
-      character: string,
-      subCategory: string,
-    ) => {
+    async (input: {
+      file: File | null;
+      detail: string;
+      trait: string;
+      parameter: string;
+      character: string;
+      subCategory: string;
+      tag: FormationTag | "";
+    }) => {
+      const { file, detail, trait, parameter, character, subCategory, tag } = input;
       if (!hasAnyContent({ parameter, character, subCategory, detail, trait }, !!file)) {
         throw new Error("Add at least an image or one field before saving.");
       }
@@ -246,6 +248,7 @@ export function useFormations() {
         parameter: parameter.trim(),
         character: character.trim() || undefined,
         subCategory: subCategory.trim(),
+        tag: tag || undefined,
         createdAt: new Date().toISOString(),
       };
       setFormations((prev) => [entry, ...prev]);
@@ -271,6 +274,7 @@ export function useFormations() {
         parameter?: string;
         character?: string;
         subCategory?: string;
+        tag?: FormationTag | "";
       },
     ) => {
       const imageDataUrl = patch.file === undefined ? undefined : patch.file === null ? null : await fileToStoredDataUrl(patch.file);
@@ -286,6 +290,7 @@ export function useFormations() {
             ...(patch.parameter !== undefined ? { parameter: patch.parameter.trim() } : {}),
             ...(patch.character !== undefined ? { character: patch.character.trim() || undefined } : {}),
             ...(patch.subCategory !== undefined ? { subCategory: patch.subCategory.trim() } : {}),
+            ...(patch.tag !== undefined ? { tag: patch.tag || undefined } : {}),
           };
           return updated;
         }),

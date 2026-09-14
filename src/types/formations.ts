@@ -56,5 +56,21 @@ export interface FormationEntry {
   character?: string;
   /** Narrower grouping within the parameter, e.g. "Garland", "Angular". */
   subCategory: string;
+  /**
+   * Whether the trait this formation indicates reads as a positive,
+   * negative, or medium/neutral one — lets the library be filtered to just
+   * the flattering or just the cautionary indicators. Optional; unset shows
+   * as unspecified rather than defaulting to any one value.
+   */
+  tag?: FormationTag;
   createdAt: string;
 }
+
+export const FORMATION_TAGS = ["positive", "negative", "medium"] as const;
+export type FormationTag = (typeof FORMATION_TAGS)[number];
+
+export const FORMATION_TAG_LABELS: Record<FormationTag, string> = {
+  positive: "Positive",
+  negative: "Negative",
+  medium: "Medium",
+};

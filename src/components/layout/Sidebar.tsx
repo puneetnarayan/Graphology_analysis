@@ -1,7 +1,10 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { useWorkflow } from "@/state/workflowStore";
 import { PRIMARY_SECTIONS, type PrimarySection } from "@/state/navigation";
+
+const COLLAPSE_STORAGE_KEY = "graphology_sidebar_collapsed";
 
 function isSectionEnabled(section: PrimarySection, ctx: ReturnType<typeof useWorkflow>): boolean {
   switch (section) {
@@ -40,11 +43,49 @@ const ICONS: Record<PrimarySection, string> = {
 
 export function Sidebar() {
   const ctx = useWorkflow();
+  // Defaults to expanded (matching SSR, which has no localStorage) and is
+  // corrected right after mount if the user had collapsed it before — doing
+  // this in the initializer instead would read localStorage during the
+  // pre-hydration client render and mismatch the server-rendered markup.
+  const [collapsed, setCollapsed] = useState(false);
+  useEffect(() => {
+    try {
+      const stored = window.localStorage.getItem(COLLAPSE_STORAGE_KEY) === "1";
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- syncing from localStorage post-hydration is the point
+      if (stored) setCollapsed(true);
+    } catch {
+      // Ignore — default expanded.
+    }
+  }, []);
+
+  function toggleCollapsed() {
+    setCollapsed((prev) => {
+      const next = !prev;
+      try {
+        window.localStorage.setItem(COLLAPSE_STORAGE_KEY, next ? "1" : "0");
+      } catch {
+        // Non-fatal — preference just won't persist.
+      }
+      return next;
+    });
+  }
 
   return (
-    <aside className="no-print w-60 shrink-0 border-r border-border-soft bg-surface/60 backdrop-blur-sm px-3 py-5 hidden md:flex md:flex-col gap-1">
-      <div className="px-3 pb-4">
-        <p className="text-[11px] font-semibold uppercase tracking-wider text-text-muted">Workflow</p>
+    <aside
+      className={`no-print shrink-0 border-r border-border-soft bg-surface/60 backdrop-blur-sm py-5 hidden md:flex md:flex-col gap-1 transition-[width] ${
+        collapsed ? "w-16 px-2" : "w-60 px-3"
+      }`}
+    >
+      <div className={`flex items-center pb-4 ${collapsed ? "justify-center px-0" : "justify-between px-3"}`}>
+        {!collapsed && <p className="text-[11px] font-semibold uppercase tracking-wider text-text-muted">Workflow</p>}
+        <button
+          onClick={toggleCollapsed}
+          title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+          aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+          className="flex h-7 w-7 items-center justify-center rounded-lg text-text-muted hover:text-text-strong hover:bg-surface-alt"
+        >
+          ☰
+        </button>
       </div>
       {PRIMARY_SECTIONS.map((s) => {
         const enabled = isSectionEnabled(s.key, ctx);
@@ -54,7 +95,10 @@ export function Sidebar() {
             key={s.key}
             disabled={!enabled}
             onClick={() => ctx.setActiveSection(s.key)}
-            className={`group flex items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium transition-colors ${
+            title={collapsed ? s.label : undefined}
+            className={`group flex items-center gap-3 rounded-xl py-2.5 text-left text-sm font-medium transition-colors ${
+              collapsed ? "justify-center px-0" : "px-3"
+            } ${
               active
                 ? "bg-primary-soft text-primary-dark"
                 : enabled
@@ -63,23 +107,26 @@ export function Sidebar() {
             }`}
           >
             <span
-              className={`flex h-6 w-6 items-center justify-center rounded-lg text-xs ${
+              className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-lg text-xs ${
                 active ? "bg-primary text-white" : "bg-surface-sunken text-text-muted"
               }`}
             >
               {ICONS[s.key]}
             </span>
-            {s.label}
+            {!collapsed && s.label}
           </button>
         );
       })}
 
-      <div className="mt-auto px-3 pt-4">
+      <div className={`mt-auto pt-4 ${collapsed ? "px-0" : "px-3"}`}>
         <button
           onClick={ctx.reset}
-          className="w-full rounded-xl border border-border-soft bg-surface px-3 py-2 text-xs font-semibold text-text-muted hover:text-text-strong hover:bg-surface-alt transition-colors"
+          title={collapsed ? "New Analysis" : undefined}
+          className={`w-full rounded-xl border border-border-soft bg-surface py-2 text-xs font-semibold text-text-muted hover:text-text-strong hover:bg-surface-alt transition-colors ${
+            collapsed ? "px-0" : "px-3"
+          }`}
         >
-          + New Analysis
+          {collapsed ? "+" : "+ New Analysis"}
         </button>
       </div>
     </aside>
