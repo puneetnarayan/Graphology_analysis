@@ -179,23 +179,48 @@ graphology "cheat sheet" example you might collect by hand — a picture of a sp
 formation, paired with the trait it's said to indicate. It has two sub-tabs:
 
 - **Formation Library** (default): a two-column layout — the entry form sits in a left column
-  next to the workflow sidebar (upload an image, then fill in a **category**, a broad grouping
-  e.g. "Letter connections"; a **sub-category**, narrower within it, e.g. "Garland"; a
-  **detail** describing the formation, e.g. "Wavy line — no angles, just curves"; and the
-  **trait** it's said to indicate, e.g. "Diplomatic"), and the table of every saved formation —
-  image thumbnail, category, sub-category, detail, trait, date added, and Edit/Remove — fills
-  the rest of the page to its right. The form stays put and ready after each add (with
-  category/sub-category retained) so you can add several related rows in a row; each new entry
-  appears at the top of the table immediately, right next to the form that made it.
+  next to the workflow sidebar, and the table of every saved formation fills the rest of the
+  page to its right. Entry fields:
+  - **Parameter** — which handwriting-analysis parameter this formation is about, chosen from a
+    dropdown of `HANDWRITING_PARAMETERS` (`src/types/formations.ts`): the *same vocabulary* as
+    the app's own Analysis tabs (Slant, Size, Pressure, Baseline, Spacing, Margins, Zones,
+    Letter Forms, Connections, T-Bars, I-Dots, Ovals, Capitals, Punctuation, Rhythm & Speed,
+    Legibility, Signature) — so a formation you save lines up with the same categories the rule
+    engine itself measures, rather than an unrelated ad hoc taxonomy. An "Other…" option reveals
+    a free-text field for anything that doesn't fit.
+  - **Character** — the specific letter, digit, or punctuation mark this formation illustrates
+    (e.g. "t", "y", ","), when the parameter is character-specific (T-Bars, I-Dots, Ovals,
+    Letter Forms, Connections, Capitals commonly are). Optional — left blank for whole-writing
+    parameters like Slant, Baseline, Margins, Spacing, Pressure, Rhythm, Legibility, Zones, Size
+    and Signature, which aren't about any one letter.
+  - **Sub-category** — narrower grouping within the parameter, e.g. "Garland", "Angular".
+  - **Detail** — free-text description, e.g. "Wavy line — no angles, just curves".
+  - **Trait** — the personality trait/aspect it's said to indicate, e.g. "Diplomatic".
+
+  The table shows all of the above plus an image thumbnail, date added, and Edit/Remove. The
+  form stays put and ready after each add (with Parameter/Character/Sub-category retained) so
+  you can add several related rows in a row; each new entry appears at the top of the table
+  immediately, right next to the form that made it.
 - **Backup & Restore**: export/import and automatic-backup controls (see below), as its own tab.
+
+**Parameter/Character split, and what happens to older entries.** Earlier versions of this
+feature had a single free-text "Category" field, which in practice often got used as a stand-in
+for both at once (e.g. typing "Letter T" as the category to mean "this is about the letter t").
+Entries saved that way are normalized automatically, once, the first time they're loaded under
+the new schema (`normalizeFormationEntry` in `src/utils/formationsDb.ts`): the old category text
+becomes the new `parameter` value verbatim (so nothing is lost, even if it doesn't match the
+controlled vocabulary above — it just shows up as a selectable value on that row until you
+edit it), and if that text matches the "Letter X" pattern, the letter is pulled out into the new
+`character` field as a one-time helpful backfill. Use Edit on those rows afterward to reassign
+them to a proper Parameter/Character/Sub-category combination if you want them fully conformant.
 
 **Incomplete entries are fine.** You don't need every field to save a row — add just a trait
 you want to remember, or just an image with no detail yet, and fill in the rest later. The
 only requirement is that at least one field or the image isn't blank (a fully empty row is
 rejected).
 
-**Inline editing.** Click **Edit** on any row to edit its category, sub-category, detail, and
-trait in place, and to replace or clear its image — the image cell becomes the same
+**Inline editing.** Click **Edit** on any row to edit its parameter, character, sub-category,
+detail, and trait in place, and to replace or clear its image — the image cell becomes the same
 drag-drop/upload/paste picker used when adding. **Save** commits the change immediately (into
 IndexedDB and, if connected, the auto-backup file); **Cancel** discards it. The "Added" date
 is shown as dd-mm-yyyy.

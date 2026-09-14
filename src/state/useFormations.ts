@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { loadImageElement, imageElementToCanvas, toAnalysisCanvas } from "@/utils/canvas";
 import { saveBackupHandle, loadBackupHandle, clearBackupHandle } from "@/utils/fileHandleStore";
-import { dbGetAll, dbPut, dbDelete, dbClear, dbBulkPut, migrateFromLocalStorage } from "@/utils/formationsDb";
+import { dbGetAll, dbPut, dbDelete, dbClear, dbBulkPut, migrateFromLocalStorage, normalizeFormationEntry } from "@/utils/formationsDb";
 import type { FormationEntry } from "@/types";
 
 /** Formation reference images are small illustrative crops, not full samples — keep them light. */
@@ -18,10 +18,10 @@ async function fileToStoredDataUrl(file: File): Promise<string> {
   return canvas.toDataURL("image/jpeg", 0.85);
 }
 
-function isFormationEntry(v: unknown): v is FormationEntry {
+function isFormationEntryLike(v: unknown): v is Record<string, unknown> {
   if (!v || typeof v !== "object") return false;
   const e = v as Record<string, unknown>;
-  return typeof e.imageDataUrl === "string" && typeof e.detail === "string" && typeof e.trait === "string";
+  return typeof e.detail === "string" && typeof e.trait === "string";
 }
 
 function newId(): string {
@@ -30,10 +30,14 @@ function newId(): string {
 
 export type AutoBackupStatus = "unsupported" | "disabled" | "active" | "permission-needed" | "error";
 
-function hasAnyContent(fields: { category?: string; subCategory?: string; detail?: string; trait?: string }, hasImage: boolean): boolean {
+function hasAnyContent(
+  fields: { parameter?: string; character?: string; subCategory?: string; detail?: string; trait?: string },
+  hasImage: boolean,
+): boolean {
   return (
     hasImage ||
-    !!fields.category?.trim() ||
+    !!fields.parameter?.trim() ||
+    !!fields.character?.trim() ||
     !!fields.subCategory?.trim() ||
     !!fields.detail?.trim() ||
     !!fields.trait?.trim()
@@ -74,13 +78,22 @@ export function useFormations() {
 
   // Load from IndexedDB on mount, migrating any pre-existing localStorage
   // library over first (see src/utils/formationsDb.ts) — a no-op after the
-  // first successful run.
+  // first successful run. Also normalizes any entries still in the older
+  // pre-Parameter/Character shape (see normalizeFormationEntry) and writes
+  // the normalized versions back, once.
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
         await migrateFromLocalStorage();
-        const entries = await dbGetAll();
+        const raw = await dbGetAll();
+        const changedEntries: FormationEntry[] = [];
+        const entries = raw.map((r) => {
+          const { entry, changed } = normalizeFormationEntry(r as unknown as Record<string, unknown>);
+          if (changed) changedEntries.push(entry);
+          return entry;
+        });
+        if (changedEntries.length > 0) await dbBulkPut(changedEntries);
         if (cancelled) return;
         entries.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
         setFormations(entries);
@@ -213,8 +226,15 @@ export function useFormations() {
    * one field isn't blank. Throws if every field would be empty.
    */
   const addFormation = useCallback(
-    async (file: File | null, detail: string, trait: string, category: string, subCategory: string) => {
-      if (!hasAnyContent({ category, subCategory, detail, trait }, !!file)) {
+    async (
+      file: File | null,
+      detail: string,
+      trait: string,
+      parameter: string,
+      character: string,
+      subCategory: string,
+    ) => {
+      if (!hasAnyContent({ parameter, character, subCategory, detail, trait }, !!file)) {
         throw new Error("Add at least an image or one field before saving.");
       }
       const imageDataUrl = file ? await fileToStoredDataUrl(file) : undefined;
@@ -223,7 +243,8 @@ export function useFormations() {
         imageDataUrl,
         detail: detail.trim(),
         trait: trait.trim(),
-        category: category.trim(),
+        parameter: parameter.trim(),
+        character: character.trim() || undefined,
         subCategory: subCategory.trim(),
         createdAt: new Date().toISOString(),
       };
@@ -243,7 +264,14 @@ export function useFormations() {
   const updateFormation = useCallback(
     async (
       id: string,
-      patch: { file?: File | null; detail?: string; trait?: string; category?: string; subCategory?: string },
+      patch: {
+        file?: File | null;
+        detail?: string;
+        trait?: string;
+        parameter?: string;
+        character?: string;
+        subCategory?: string;
+      },
     ) => {
       const imageDataUrl = patch.file === undefined ? undefined : patch.file === null ? null : await fileToStoredDataUrl(patch.file);
       let updated: FormationEntry | null = null;
@@ -255,7 +283,8 @@ export function useFormations() {
             ...(imageDataUrl === undefined ? {} : { imageDataUrl: imageDataUrl ?? undefined }),
             ...(patch.detail !== undefined ? { detail: patch.detail.trim() } : {}),
             ...(patch.trait !== undefined ? { trait: patch.trait.trim() } : {}),
-            ...(patch.category !== undefined ? { category: patch.category.trim() } : {}),
+            ...(patch.parameter !== undefined ? { parameter: patch.parameter.trim() } : {}),
+            ...(patch.character !== undefined ? { character: patch.character.trim() || undefined } : {}),
             ...(patch.subCategory !== undefined ? { subCategory: patch.subCategory.trim() } : {}),
           };
           return updated;
@@ -300,17 +329,17 @@ export function useFormations() {
   const importFormations = useCallback(async (file: File, mode: "merge" | "replace") => {
     const text = await file.text();
     const parsed = JSON.parse(text);
-    const incomingRaw = Array.isArray(parsed) ? parsed : Array.isArray(parsed?.formations) ? parsed.formations : null;
+    const incomingRaw: unknown[] = Array.isArray(parsed) ? parsed : Array.isArray(parsed?.formations) ? parsed.formations : null;
     if (!incomingRaw) throw new Error("This file doesn't look like a Letter Formations backup.");
-    const incoming = incomingRaw.filter(isFormationEntry).map((e: FormationEntry) => ({
-      id: typeof e.id === "string" && e.id ? e.id : newId(),
-      imageDataUrl: e.imageDataUrl,
-      detail: e.detail,
-      trait: e.trait,
-      category: e.category ?? "",
-      subCategory: e.subCategory ?? "",
-      createdAt: e.createdAt ?? new Date().toISOString(),
-    }));
+    const incoming = incomingRaw
+      .filter(isFormationEntryLike)
+      .map((raw): FormationEntry => normalizeFormationEntry(raw).entry)
+      .map((e) => ({
+        ...e,
+        id: typeof e.id === "string" && e.id ? e.id : newId(),
+        subCategory: e.subCategory ?? "",
+        createdAt: e.createdAt ?? new Date().toISOString(),
+      }));
     if (incoming.length === 0) throw new Error("No valid formation entries found in this file.");
 
     if (mode === "replace") {

@@ -39,6 +39,35 @@ export async function dbGetAll(): Promise<FormationEntry[]> {
   return entries;
 }
 
+/**
+ * Normalizes one record from IndexedDB into the current `FormationEntry`
+ * shape. Entries saved before the Parameter/Character split (see
+ * `src/types/formations.ts`) had a free-text `category` field instead of
+ * `parameter`, and no `character` field at all. For those:
+ * - `category`'s value becomes `parameter` verbatim (so nothing is lost,
+ *   even if it doesn't match the current controlled vocabulary).
+ * - If that text matches the common "Letter X" pattern people used as a
+ *   stand-in category (e.g. "Letter T"), the letter is pulled out into the
+ *   new `character` field as a one-time helpful backfill.
+ * Returns `changed: false` for records already in the current shape, so the
+ * caller knows which ones are worth writing back.
+ */
+export function normalizeFormationEntry(raw: Record<string, unknown>): { entry: FormationEntry; changed: boolean } {
+  if (typeof raw.parameter === "string") {
+    return { entry: raw as unknown as FormationEntry, changed: false };
+  }
+  const legacyCategory = typeof raw.category === "string" ? raw.category : "";
+  let character = typeof raw.character === "string" && raw.character ? raw.character : undefined;
+  if (!character) {
+    const m = /^letter\s+([a-z0-9])$/i.exec(legacyCategory.trim());
+    if (m) character = m[1].toLowerCase();
+  }
+  const { category: _category, ...rest } = raw;
+  void _category;
+  const entry = { ...rest, parameter: legacyCategory, character } as FormationEntry;
+  return { entry, changed: true };
+}
+
 export async function dbPut(entry: FormationEntry): Promise<void> {
   const db = await openDb();
   await new Promise<void>((resolve, reject) => {

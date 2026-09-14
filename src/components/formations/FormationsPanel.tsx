@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/Badge";
 import { FORMATIONS_SUB_TABS, type FormationsSubTab } from "@/state/navigation";
 import { useFormations } from "@/state/useFormations";
 import { extractImageFileFromClipboard } from "@/utils/clipboard";
-import type { FormationEntry } from "@/types";
+import { HANDWRITING_PARAMETERS, type FormationEntry } from "@/types";
 
 type FormationsStore = ReturnType<typeof useFormations>;
 
@@ -109,20 +109,77 @@ function useObjectUrl(file: File | null | undefined): string | null {
 
 interface DraftFields {
   file: File | null;
-  category: string;
+  parameter: string;
+  character: string;
   subCategory: string;
   detail: string;
   trait: string;
 }
 
-const EMPTY_DRAFT: DraftFields = { file: null, category: "", subCategory: "", detail: "", trait: "" };
+const EMPTY_DRAFT: DraftFields = { file: null, parameter: "", character: "", subCategory: "", detail: "", trait: "" };
 
-function useCategoryOptions(formations: FormationEntry[]) {
-  return useMemo(() => {
-    const categories = Array.from(new Set(formations.map((f) => f.category).filter(Boolean)));
-    const subCategories = Array.from(new Set(formations.map((f) => f.subCategory).filter(Boolean)));
-    return { categories, subCategories };
-  }, [formations]);
+function useSubCategoryOptions(formations: FormationEntry[]) {
+  return useMemo(() => Array.from(new Set(formations.map((f) => f.subCategory).filter(Boolean))), [formations]);
+}
+
+/**
+ * Dropdown of the app's own handwriting-analysis parameter vocabulary
+ * (`HANDWRITING_PARAMETERS`), so formations line up with the same
+ * categories the rule engine measures elsewhere in the app. Falls back to a
+ * free-text field via "Other…" for anything that doesn't fit, and also
+ * surfaces as free text automatically if the current value is an older
+ * custom category that predates this list, so nothing gets silently reset.
+ */
+function ParameterField({ value, onChange, compact = false }: { value: string; onChange: (v: string) => void; compact?: boolean }) {
+  const isKnown = (HANDWRITING_PARAMETERS as readonly string[]).includes(value);
+  const [customMode, setCustomMode] = useState(!!value && !isKnown);
+
+  if (customMode) {
+    return (
+      <div className="flex gap-1 items-center">
+        <input
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder="Custom parameter"
+          className={`w-full rounded-lg bg-surface text-sm h-10 ${compact ? "px-2" : "border border-border-soft px-3"}`}
+        />
+        <button
+          type="button"
+          title="Choose from the standard list instead"
+          onClick={() => {
+            setCustomMode(false);
+            onChange("");
+          }}
+          className="shrink-0 rounded-lg px-2 py-1.5 text-xs text-text-muted"
+        >
+          List
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <select
+      value={isKnown ? value : ""}
+      onChange={(e) => {
+        if (e.target.value === "__other__") {
+          setCustomMode(true);
+          onChange("");
+        } else {
+          onChange(e.target.value);
+        }
+      }}
+      className={`w-full rounded-lg bg-surface text-sm h-10 ${compact ? "px-2" : "border border-border-soft px-3"}`}
+    >
+      <option value="">Select a parameter…</option>
+      {HANDWRITING_PARAMETERS.map((p) => (
+        <option key={p} value={p}>
+          {p}
+        </option>
+      ))}
+      <option value="__other__">Other…</option>
+    </select>
+  );
 }
 
 function ImageThumb({ src, size = "h-14 w-20" }: { src: string | null; size?: string }) {
@@ -139,7 +196,8 @@ function ImageThumb({ src, size = "h-14 w-20" }: { src: string | null; size?: st
 
 interface EditFields {
   file?: File | null;
-  category: string;
+  parameter: string;
+  character: string;
   subCategory: string;
   detail: string;
   trait: string;
@@ -158,7 +216,8 @@ function FormationRow({
 }) {
   const [isEditing, setIsEditing] = useState(false);
   const [edit, setEdit] = useState<EditFields>({
-    category: f.category,
+    parameter: f.parameter,
+    character: f.character ?? "",
     subCategory: f.subCategory,
     detail: f.detail,
     trait: f.trait,
@@ -168,7 +227,7 @@ function FormationRow({
   const displayImageUrl = edit.file === null ? null : edit.file ? editImageUrl : (f.imageDataUrl ?? null);
 
   function startEdit() {
-    setEdit({ category: f.category, subCategory: f.subCategory, detail: f.detail, trait: f.trait });
+    setEdit({ parameter: f.parameter, character: f.character ?? "", subCategory: f.subCategory, detail: f.detail, trait: f.trait });
     setIsEditing(true);
   }
 
@@ -197,10 +256,14 @@ function FormationRow({
           )}
         </td>
         <td className="py-2 px-2 align-top">
+          <ParameterField value={edit.parameter} onChange={(v) => setEdit({ ...edit, parameter: v })} compact />
+        </td>
+        <td className="py-2 px-2 align-top">
           <input
-            value={edit.category}
-            onChange={(e) => setEdit({ ...edit, category: e.target.value })}
-            placeholder="Category"
+            value={edit.character}
+            onChange={(e) => setEdit({ ...edit, character: e.target.value })}
+            placeholder="Character"
+            maxLength={4}
             className="w-full rounded-lg bg-surface px-2 py-1.5 text-sm"
           />
         </td>
@@ -246,7 +309,8 @@ function FormationRow({
       <td className="py-2 px-2">
         <ImageThumb src={f.imageDataUrl ?? null} />
       </td>
-      <td className="py-2 px-2 text-text-body whitespace-nowrap">{f.category || <span className="text-text-muted italic">—</span>}</td>
+      <td className="py-2 px-2 text-text-body whitespace-nowrap">{f.parameter || <span className="text-text-muted italic">—</span>}</td>
+      <td className="py-2 px-2 text-text-body whitespace-nowrap font-mono">{f.character || <span className="text-text-muted italic font-sans">—</span>}</td>
       <td className="py-2 px-2 text-text-body whitespace-nowrap">{f.subCategory || <span className="text-text-muted italic">—</span>}</td>
       <td className="py-2 px-2 text-text-body max-w-[220px]">{f.detail || <span className="text-text-muted italic">—</span>}</td>
       <td className="py-2 px-2 font-semibold text-primary-dark">{f.trait || <span className="text-text-muted italic font-normal">—</span>}</td>
@@ -267,14 +331,13 @@ function FormationRow({
   );
 }
 
-/** Shared entry form: category, sub-category, detail, trait + image. Used on both sub-tabs. */
+/** Shared entry form: parameter, character, sub-category, detail, trait + image. Used on both sub-tabs. */
 function EntryForm({
   draft,
   setDraft,
   onSubmit,
   isSaving,
   error,
-  categories,
   subCategories,
   compact = false,
   submitLabel = "Add to Formation Library",
@@ -284,28 +347,38 @@ function EntryForm({
   onSubmit: () => void;
   isSaving: boolean;
   error: string | null;
-  categories: string[];
   subCategories: string[];
   compact?: boolean;
   submitLabel?: string;
 }) {
   const draftImageUrl = useObjectUrl(draft.file);
   const hasContent =
-    !!draft.file || !!draft.category.trim() || !!draft.subCategory.trim() || !!draft.detail.trim() || !!draft.trait.trim();
+    !!draft.file ||
+    !!draft.parameter.trim() ||
+    !!draft.character.trim() ||
+    !!draft.subCategory.trim() ||
+    !!draft.detail.trim() ||
+    !!draft.trait.trim();
   const canSubmit = hasContent && !isSaving;
 
   return (
     <>
-      <div className={`grid grid-cols-1 ${compact ? "sm:grid-cols-[160px_1fr_1fr_1fr_1fr_auto]" : "sm:grid-cols-2"} gap-3 items-start`}>
+      <div className={`grid grid-cols-1 ${compact ? "sm:grid-cols-[160px_1fr_90px_1fr_1fr_1fr_auto]" : "sm:grid-cols-2"} gap-3 items-start`}>
         <DropZone imageUrl={draftImageUrl} onFile={(file) => setDraft({ ...draft, file })} compact={compact} />
         <div className={`flex flex-col gap-3 ${compact ? "contents" : ""}`}>
           <label className="text-xs font-medium text-text-body">
-            {!compact && "Category"}
+            {!compact && "Parameter"}
+            <div className={compact ? "" : "mt-1"}>
+              <ParameterField value={draft.parameter} onChange={(v) => setDraft({ ...draft, parameter: v })} compact={compact} />
+            </div>
+          </label>
+          <label className="text-xs font-medium text-text-body">
+            {!compact && "Character"}
             <input
-              value={draft.category}
-              onChange={(e) => setDraft({ ...draft, category: e.target.value })}
-              placeholder="Category (e.g. Letter connections)"
-              list="formation-categories"
+              value={draft.character}
+              onChange={(e) => setDraft({ ...draft, character: e.target.value })}
+              placeholder='Character (e.g. "t") — optional'
+              maxLength={4}
               className="mt-1 w-full rounded-lg border border-border-soft bg-surface px-3 py-2 text-sm h-10 focus:outline-none focus:ring-2 focus:ring-primary/30"
             />
           </label>
@@ -344,11 +417,6 @@ function EntryForm({
           )}
         </div>
       </div>
-      <datalist id="formation-categories">
-        {categories.map((c) => (
-          <option key={c} value={c} />
-        ))}
-      </datalist>
       <datalist id="formation-subcategories">
         {subCategories.map((c) => (
           <option key={c} value={c} />
@@ -374,7 +442,7 @@ function EntryForm({
  */
 function FormationLibraryTab({ store }: { store: FormationsStore }) {
   const { formations, loaded, addFormation, removeFormation, updateFormation } = store;
-  const { categories, subCategories } = useCategoryOptions(formations);
+  const subCategories = useSubCategoryOptions(formations);
   const [draft, setDraft] = useState<DraftFields>(EMPTY_DRAFT);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -383,9 +451,9 @@ function FormationLibraryTab({ store }: { store: FormationsStore }) {
     setIsSaving(true);
     setError(null);
     try {
-      await addFormation(draft.file, draft.detail, draft.trait, draft.category, draft.subCategory);
-      // Keep category/sub-category (usually stay the same for a run of related entries); clear the rest.
-      setDraft({ file: null, category: draft.category, subCategory: draft.subCategory, detail: "", trait: "" });
+      await addFormation(draft.file, draft.detail, draft.trait, draft.parameter, draft.character, draft.subCategory);
+      // Keep parameter/character/sub-category (usually stay the same for a run of related entries); clear the rest.
+      setDraft({ file: null, parameter: draft.parameter, character: draft.character, subCategory: draft.subCategory, detail: "", trait: "" });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not save this formation.");
     } finally {
@@ -398,20 +466,13 @@ function FormationLibraryTab({ store }: { store: FormationsStore }) {
       <Card className="lg:sticky lg:top-4">
         <CardTitle>Add a letter formation</CardTitle>
         <CardSubtitle>
-          Upload an image, its category/sub-category, a short detail, and the trait it&apos;s said to indicate — or
-          save with only some fields filled in and fill in the rest later via Edit. New entries appear at the top of
-          the table, and the form stays ready for the next one.
+          Upload an image, the handwriting-analysis parameter it&apos;s about (the same categories used in
+          Analysis), the specific character if relevant, a short detail, and the trait it&apos;s said to indicate —
+          or save with only some fields filled in and fill in the rest later via Edit. New entries appear at the top
+          of the table, and the form stays ready for the next one.
         </CardSubtitle>
         <div className="mt-4">
-          <EntryForm
-            draft={draft}
-            setDraft={setDraft}
-            onSubmit={handleSubmit}
-            isSaving={isSaving}
-            error={error}
-            categories={categories}
-            subCategories={subCategories}
-          />
+          <EntryForm draft={draft} setDraft={setDraft} onSubmit={handleSubmit} isSaving={isSaving} error={error} subCategories={subCategories} />
         </div>
       </Card>
 
@@ -421,7 +482,8 @@ function FormationLibraryTab({ store }: { store: FormationsStore }) {
             <thead>
               <tr className="text-left text-text-muted border-b border-border-soft">
                 <th className="py-2 px-2 font-medium">Formation</th>
-                <th className="py-2 px-2 font-medium">Category</th>
+                <th className="py-2 px-2 font-medium">Parameter</th>
+                <th className="py-2 px-2 font-medium">Character</th>
                 <th className="py-2 px-2 font-medium">Sub-category</th>
                 <th className="py-2 px-2 font-medium">Detail</th>
                 <th className="py-2 px-2 font-medium">Trait</th>
@@ -435,7 +497,7 @@ function FormationLibraryTab({ store }: { store: FormationsStore }) {
               ))}
               {loaded && formations.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="py-6 text-center text-sm text-text-muted">
+                  <td colSpan={8} className="py-6 text-center text-sm text-text-muted">
                     No formations yet. Add one on the left.
                   </td>
                 </tr>
@@ -649,10 +711,11 @@ export function FormationsPanel() {
       <div>
         <h2 className="text-xl font-semibold text-text-strong">Letter Formations</h2>
         <p className="text-sm text-text-muted mt-1">
-          A reference library of letter-formation examples, grouped by category and sub-category, and the
-          personality trait each is said to indicate — your own annotated notes, kept in this browser. This library
-          is informational only: it is not wired into the automated rule engine or trait scoring elsewhere in the
-          app.
+          A reference library of letter-formation examples, organized by handwriting-analysis parameter (the same
+          vocabulary as the Analysis tabs — Slant, T-Bars, Margins, and so on), the specific character when
+          relevant, and a sub-category, alongside the personality trait each is said to indicate — your own
+          annotated notes, kept in this browser. This library is informational only: it is not wired into the
+          automated rule engine or trait scoring elsewhere in the app.
         </p>
       </div>
 
