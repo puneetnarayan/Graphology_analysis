@@ -176,7 +176,7 @@ skepticism rather than as ground truth.
 
 The **Letter Formations** tab is a personal, browser-local reference library for the kind of
 graphology "cheat sheet" example you might collect by hand — a picture of a specific letter
-formation, paired with the trait it's said to indicate. It has two sub-tabs:
+formation, paired with the trait it's said to indicate. It has three sub-tabs:
 
 - **Formation Library** (default): the entry form sits in a full-width card at the top of the
   page (wide fields, so longer detail/trait text is readable while typing — not squeezed into a
@@ -214,6 +214,13 @@ formation, paired with the trait it's said to indicate. It has two sub-tabs:
   The form stays put and ready after each add (with Parameter/Character/Sub-category/Tag
   retained) so you can add several related rows in a row; each new entry appears at the top of
   the table immediately, right below the form that made it.
+- **Trait Index**: the reverse lookup — instead of "what is this formation about," this answers
+  "what formations point to trait X." Every distinct trait present in the library gets its own
+  collapsible group (a card grid underneath — image, Parameter/Character, detail, Tag badge, and
+  a Remove action), sorted alphabetically or by how many formations point to it. Has the same
+  search (matches trait text) and Tag filter chips as the Formation Library. This view is
+  read-focused — to edit a formation's fields, find it in Formation Library (its search also
+  matches trait text) and use Edit there.
 - **Backup & Restore**: export/import and automatic-backup controls (see below), as its own tab.
 
 **Collapsible sidebar.** The workflow sidebar (Upload Sample, Image Preparation, ... Letter

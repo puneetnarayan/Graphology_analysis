@@ -728,6 +728,139 @@ function FormationLibraryTab({ store }: { store: FormationsStore }) {
   );
 }
 
+function TraitFormationCard({ f, onRemove }: { f: FormationEntry; onRemove: (id: string) => void }) {
+  return (
+    <div className="flex gap-3 rounded-xl border border-border-soft bg-surface-alt p-2.5">
+      <ImageThumb src={f.imageDataUrl ?? null} size="h-16 w-16" />
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <span className="text-xs font-semibold text-text-strong">{f.parameter || <span className="italic font-normal text-text-muted">No parameter</span>}</span>
+          {f.character && <span className="text-xs font-mono px-1.5 py-0.5 rounded bg-surface text-text-body border border-border-soft">{f.character}</span>}
+          <TagBadge tag={f.tag} />
+        </div>
+        {f.subCategory && <p className="text-[11px] text-text-muted mt-0.5">{f.subCategory}</p>}
+        <p className="text-xs text-text-body mt-1 line-clamp-2">{f.detail || <span className="italic text-text-muted">No detail</span>}</p>
+      </div>
+      <button
+        onClick={() => onRemove(f.id)}
+        className="self-start shrink-0 text-[11px] text-text-muted hover:text-danger px-1.5 py-1 rounded-md"
+      >
+        Remove
+      </button>
+    </div>
+  );
+}
+
+type TraitSortBy = "alpha" | "count";
+
+/**
+ * The reverse of the Formation Library: instead of "what is this formation
+ * about," this answers "what formations point to trait X" — every distinct
+ * trait in the library with all the formations that indicate it grouped
+ * underneath, collapsible per trait. Read-focused: use Formation Library's
+ * search (which also matches trait text) to find and Edit a specific row.
+ */
+function TraitIndexTab({ store }: { store: FormationsStore }) {
+  const { formations, loaded, removeFormation } = store;
+  const [search, setSearch] = useState("");
+  const [tagFilter, setTagFilter] = useState<string>("all");
+  const [sortBy, setSortBy] = useState<TraitSortBy>("alpha");
+  const [collapsedTraits, setCollapsedTraits] = useState<Set<string>>(new Set());
+
+  const groups = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    const map = new Map<string, FormationEntry[]>();
+    for (const f of formations) {
+      if (tagFilter !== "all" && (f.tag ?? "") !== tagFilter) continue;
+      const key = f.trait.trim() || "(no trait yet)";
+      if (q && !key.toLowerCase().includes(q)) continue;
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(f);
+    }
+    const arr = Array.from(map.entries()).map(([trait, items]) => ({ trait, items }));
+    arr.sort((a, b) => (sortBy === "alpha" ? a.trait.localeCompare(b.trait) : b.items.length - a.items.length));
+    return arr;
+  }, [formations, tagFilter, search, sortBy]);
+
+  function toggleTrait(key: string) {
+    setCollapsedTraits((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
+
+  return (
+    <Card padding="p-3">
+      <div className="px-2 pt-1 pb-3">
+        <CardTitle>Trait Index</CardTitle>
+        <CardSubtitle>
+          Every distinct trait in your library, with all the formations that indicate it grouped underneath — the
+          reverse of the Formation Library&apos;s view. Handy for answering &quot;what formations point to
+          Diplomatic?&quot; instead of &quot;what&apos;s this formation about?&quot;
+        </CardSubtitle>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2 px-2 pb-3">
+        <input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search trait…"
+          className="flex-1 min-w-[200px] rounded-lg border border-border-soft bg-surface px-3 py-2 text-sm h-9 focus:outline-none focus:ring-2 focus:ring-primary/30"
+        />
+        <select
+          value={sortBy}
+          onChange={(e) => setSortBy(e.target.value as TraitSortBy)}
+          className="rounded-lg border border-border-soft bg-surface px-2 text-sm h-9"
+        >
+          <option value="alpha">Sort A–Z</option>
+          <option value="count">Sort by most formations</option>
+        </select>
+      </div>
+
+      <div className="flex flex-wrap gap-1.5 px-2 pb-3 border-b border-border-soft mb-3">
+        <FilterChip active={tagFilter === "all"} onClick={() => setTagFilter("all")}>
+          All tags
+        </FilterChip>
+        {FORMATION_TAGS.map((t) => (
+          <FilterChip key={t} active={tagFilter === t} onClick={() => setTagFilter(t)}>
+            {FORMATION_TAG_LABELS[t]}
+          </FilterChip>
+        ))}
+      </div>
+
+      <div className="flex flex-col gap-1 px-2 pb-2">
+        {groups.map((g) => (
+          <div key={g.trait}>
+            <button
+              onClick={() => toggleTrait(g.trait)}
+              className="flex items-center gap-1.5 w-full text-left text-sm font-semibold text-text-strong px-2 py-2 rounded-lg hover:bg-surface-alt"
+            >
+              <span className="text-text-muted text-xs">{collapsedTraits.has(g.trait) ? "▶" : "▼"}</span>
+              {g.trait}
+              <span className="text-text-muted font-normal text-xs">({g.items.length})</span>
+            </button>
+            {!collapsedTraits.has(g.trait) && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 pl-6 pb-3">
+                {g.items.map((f) => (
+                  <TraitFormationCard key={f.id} f={f} onRemove={removeFormation} />
+                ))}
+              </div>
+            )}
+          </div>
+        ))}
+        {loaded && formations.length === 0 && (
+          <p className="text-center text-sm text-text-muted py-6">No formations yet. Add some in the Formation Library tab.</p>
+        )}
+        {loaded && formations.length > 0 && groups.length === 0 && (
+          <p className="text-center text-sm text-text-muted py-6">No traits match this search/filter.</p>
+        )}
+      </div>
+    </Card>
+  );
+}
+
 function timeAgo(iso: string): string {
   const seconds = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000);
   if (seconds < 5) return "just now";
@@ -952,6 +1085,7 @@ export function FormationsPanel() {
       </div>
 
       {subTab === "library" && <FormationLibraryTab store={store} />}
+      {subTab === "traitIndex" && <TraitIndexTab store={store} />}
       {subTab === "backup" && <BackupTab store={store} />}
 
       <BackupReminderModal store={store} />
