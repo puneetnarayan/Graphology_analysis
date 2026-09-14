@@ -8,9 +8,10 @@ import { FORMATIONS_SUB_TABS, type FormationsSubTab } from "@/state/navigation";
 import { useFormations } from "@/state/useFormations";
 import { extractImageFileFromClipboard } from "@/utils/clipboard";
 import { ImageAnnotator } from "./ImageAnnotator";
+import { BookExportTab } from "./BookExportTab";
 import { HANDWRITING_PARAMETERS, FORMATION_TAGS, FORMATION_TAG_LABELS, type FormationEntry, type FormationTag } from "@/types";
 
-type FormationsStore = ReturnType<typeof useFormations>;
+export type FormationsStore = ReturnType<typeof useFormations>;
 
 /** How long to wait, with unsaved changes pending, before nagging for a backup. */
 const BACKUP_REMINDER_INTERVAL_MS = 15 * 60 * 1000;
@@ -1254,6 +1255,7 @@ export function FormationsPanel() {
 
       {subTab === "library" && <FormationLibraryTab store={store} />}
       {subTab === "traitIndex" && <TraitIndexTab store={store} />}
+      {subTab === "book" && <BookExportTab store={store} />}
       {subTab === "backup" && <BackupTab store={store} />}
 
       <BackupReminderModal store={store} />

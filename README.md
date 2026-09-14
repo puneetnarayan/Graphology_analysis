@@ -224,6 +224,8 @@ formation, paired with the trait it's said to indicate. It has three sub-tabs:
   search (matches trait text) and Tag filter chips as the Formation Library. This view is
   read-focused — to edit a formation's fields, find it in Formation Library (its search also
   matches trait text) and use Edit there.
+- **Book / PDF**: generates a print-ready 6&times;9in paperback interior PDF from the library, for
+  KDP (see below), as its own tab.
 - **Backup & Restore**: export/import and automatic-backup controls (see below), as its own tab.
 
 **Collapsible sidebar.** The workflow sidebar (Upload Sample, Image Preparation, ... Letter
@@ -281,6 +283,29 @@ annotated image simply *is* the formation's image from that point on.
 **Auto-expanding text fields.** Character, Sub-category, Detail, and Trait — in both the entry
 form and inline row editing — grow taller as their content wraps past one line, so editing never
 hides existing text behind a fixed-height box.
+
+**Book / PDF export (KDP-ready).** The **Book / PDF** sub-tab (`src/components/formations/BookExportTab.tsx`,
+building on `src/report/bookPdfBuilder.ts` and `src/report/formationsBookPdf.ts`) turns the
+library into a paperback interior file sized for Amazon KDP's 6&times;9in trim:
+
+- **Chapter grouping** — choose one chapter per **Parameter** (the app's own handwriting-analysis
+  vocabulary, in that canonical order), per **Trait**, or per **Character**; entries missing that
+  field land in a trailing "(No … set)" chapter rather than being dropped.
+- **Entry filter** — **Complete entries only** (has an image, detail, and trait — every printed
+  page carries real content), **Has an image** (detail/trait optional), or **All entries**. Live
+  counts next to each option update from the current library so you can see what you'll get
+  before generating.
+- The PDF itself: a title page and a copyright page (placeholder ISBN/copyright text you fill in
+  before publishing), a **Table of Contents** whose page length is reserved to fit the actual
+  chapter list and whose rows are hyperlinked to their chapter, a running header on every chapter
+  page (chapter title, plus a **Contents** link back to that chapter's own Contents row), and a
+  **back-of-book Index** — alphabetical by Trait and, separately, by Character — with every page
+  number individually hyperlinked. Left/right margins mirror by page (inner "gutter" vs. outer
+  edge) so the text block sits centered once bound; the gutter is sized generously enough to stay
+  within KDP's minimum at any realistic page count, so double-check it against KDP's current
+  requirement for your book's actual final page count before uploading.
+- All PDF construction happens client-side in the browser (jsPDF), same as the existing Analysis
+  report — nothing is uploaded anywhere to generate it.
 
 **Where the data lives.** Entries (including the images, downscaled to keep storage light)
 are saved to this browser's **IndexedDB** (`src/utils/formationsDb.ts`), not to any server —
