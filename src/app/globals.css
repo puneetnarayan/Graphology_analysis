@@ -1,0 +1,110 @@
+@import "tailwindcss";
+
+:root {
+  color-scheme: light;
+  --background: #faf9fd;
+  --surface: #ffffff;
+  --surface-alt: #f3f1fb;
+  --surface-sunken: #ede9f8;
+  --border-soft: #e6e1f5;
+  --text-strong: #2c2a3d;
+  --text-body: #4a465e;
+  --text-muted: #837e99;
+
+  --primary: #8d7fd6;
+  --primary-dark: #6e5fc4;
+  --primary-soft: #ece8fb;
+  --primary-softer: #f5f2fd;
+
+  --mint: #a4ddc7;
+  --mint-soft: #e4f6ee;
+  --peach: #f3c39d;
+  --peach-soft: #fbebdc;
+  --sky: #a3c9ec;
+  --sky-soft: #e7f1fc;
+  --blush: #f2b6c8;
+  --blush-soft: #fceef2;
+  --butter: #f0dd9c;
+  --butter-soft: #faf3dc;
+
+  --success: #6fb894;
+  --success-soft: #e2f4ea;
+  --warning: #d9a24f;
+  --warning-soft: #faf0dc;
+  --danger: #d97f7f;
+  --danger-soft: #fbe8e8;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-surface-alt: var(--surface-alt);
+  --color-surface-sunken: var(--surface-sunken);
+  --color-border-soft: var(--border-soft);
+  --color-text-strong: var(--text-strong);
+  --color-text-body: var(--text-body);
+  --color-text-muted: var(--text-muted);
+
+  --color-primary: var(--primary);
+  --color-primary-dark: var(--primary-dark);
+  --color-primary-soft: var(--primary-soft);
+  --color-primary-softer: var(--primary-softer);
+
+  --color-mint: var(--mint);
+  --color-mint-soft: var(--mint-soft);
+  --color-peach: var(--peach);
+  --color-peach-soft: var(--peach-soft);
+  --color-sky: var(--sky);
+  --color-sky-soft: var(--sky-soft);
+  --color-blush: var(--blush);
+  --color-blush-soft: var(--blush-soft);
+  --color-butter: var(--butter);
+  --color-butter-soft: var(--butter-soft);
+
+  --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+
+  --font-sans: var(--font-sans-body);
+  --font-handwritten: var(--font-handwritten);
+}
+
+* {
+  border-color: var(--border-soft);
+}
+
+body {
+  background: var(--background);
+  color: var(--text-body);
+  font-family: var(--font-sans-body), ui-sans-serif, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: var(--primary-soft);
+  color: var(--text-strong);
+}
+
+.scrollbar-thin::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background: var(--border-soft);
+  border-radius: 999px;
+}
+.scrollbar-thin::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+@media print {
+  .no-print {
+    display: none !important;
+  }
+  body {
+    background: white;
+  }
+}
