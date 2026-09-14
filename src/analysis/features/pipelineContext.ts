@@ -2,6 +2,7 @@ import type { ConnectedComponent, LineBand, WordSpan } from "@/utils/segmentatio
 import type { GrayBuffer } from "@/utils/grayscale";
 import type { ScanQualityReport } from "@/types";
 import type { LineXHeightBand } from "./common";
+import type { ComponentShapeInfo } from "./shapeClassifier";
 
 export interface LineWordData {
   line: LineBand;
@@ -21,6 +22,8 @@ export interface PipelineContext {
   plausibleComponents: ConnectedComponent[];
   componentsByLine: Map<number, ConnectedComponent[]>;
   xHeightBands: LineXHeightBand[];
+  /** Letter-agnostic shape classification per component id — see shapeClassifier.ts. */
+  componentShapes: Map<number, ComponentShapeInfo>;
   lineWordData: LineWordData[];
   scanQuality: ScanQualityReport;
   analyzeRegardlessOfQuality: boolean;

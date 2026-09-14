@@ -141,3 +141,65 @@ describe("rule engine: contradiction detection", () => {
     expect(energyContradiction).toBeDefined();
   });
 });
+
+describe("rule engine: letter-shape distribution (alphabet-level points)", () => {
+  it("activates LOOP-PREVALENCE-001 when loop-bearing components dominate the sample", () => {
+    const features = baseFeatures();
+    features.letterShapes = {
+      key: "letterShapes",
+      label: "Letter Shapes",
+      reliability: "experimental",
+      available: true,
+      measurement: {
+        totalClassified: 40,
+        buckets: [
+          { bucket: "x_height_closed_loop", label: "X-height closed loop (a/o/e-like)", count: 20, fraction: 0.5 },
+          { bucket: "x_height_narrow_stem", label: "X-height narrow stem (i/r-like)", count: 20, fraction: 0.5 },
+        ],
+        loopFraction: 0.5,
+        narrowStemFraction: 0.5,
+        dotCandidateCount: 3,
+        crossbarCandidateCount: 2,
+        confidence: 0.6,
+      },
+      observation: { id: "obs-letter-shapes", value: {} as never, confidence: 0.6, source: "automatic", sampleCount: 40 },
+    };
+
+    const output = runRuleEngine(features, stubPipelineContext(), fullQualityReport(90));
+    const loopRule = output.ruleActivations.find((a) => a.ruleId === "LOOP-PREVALENCE-001");
+    const stemRule = output.ruleActivations.find((a) => a.ruleId === "STEM-PRECISION-001");
+    expect(loopRule).toBeDefined();
+    expect(stemRule).toBeDefined();
+
+    const imagination = output.traitScores.find((t) => t.trait === "imagination_creativity");
+    const precision = output.traitScores.find((t) => t.trait === "attention_precision");
+    expect(imagination?.available).toBe(true);
+    expect(imagination!.score).toBeGreaterThan(50);
+    expect(precision?.available).toBe(true);
+    expect(precision!.score).toBeGreaterThan(50);
+  });
+
+  it("does not activate below the loop/stem prevalence threshold", () => {
+    const features = baseFeatures();
+    features.letterShapes = {
+      key: "letterShapes",
+      label: "Letter Shapes",
+      reliability: "experimental",
+      available: true,
+      measurement: {
+        totalClassified: 40,
+        buckets: [{ bucket: "other", label: "Unclassified", count: 40, fraction: 1 }],
+        loopFraction: 0.1,
+        narrowStemFraction: 0.1,
+        dotCandidateCount: 0,
+        crossbarCandidateCount: 0,
+        confidence: 0.5,
+      },
+      observation: { id: "obs-letter-shapes", value: {} as never, confidence: 0.5, source: "automatic", sampleCount: 40 },
+    };
+
+    const output = runRuleEngine(features, stubPipelineContext(), fullQualityReport(90));
+    expect(output.ruleActivations.find((a) => a.ruleId === "LOOP-PREVALENCE-001")).toBeUndefined();
+    expect(output.ruleActivations.find((a) => a.ruleId === "STEM-PRECISION-001")).toBeUndefined();
+  });
+});

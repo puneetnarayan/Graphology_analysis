@@ -84,6 +84,12 @@ export const RHYTHM_THRESHOLDS = {
   HIGH_VARIABILITY: 0.4,
 };
 
+export const LETTER_SHAPE_THRESHOLDS = {
+  MIN_CLASSIFIED: 15,
+  HIGH_LOOP_FRACTION: 0.4,
+  HIGH_STEM_FRACTION: 0.4,
+};
+
 export const SIGNATURE_THRESHOLDS = {
   SIZE_DELTA_NOTABLE: 0.35, // fraction difference from body text height
   MIN_CONFIDENCE_FOR_FINDINGS: 0.4,

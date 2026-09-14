@@ -3,6 +3,7 @@ import { connectedComponents, detectLines, detectWordsInLine } from "@/utils/seg
 import type { AllFeatureResults, ScanQualityReport } from "@/types";
 import { componentsByLineMap, estimateXHeightBands, plausibleLetterComponents } from "./common";
 import type { PipelineContext } from "./pipelineContext";
+import { classifyComponentShapes } from "./shapeClassifier";
 import { extractSlant } from "./slant";
 import { extractBaseline } from "./baseline";
 import { extractSize } from "./size";
@@ -13,6 +14,7 @@ import { extractPressure } from "./pressure";
 import { extractTBars, extractIDots, extractOvals } from "./smallForms";
 import { extractLegibility, extractRhythm } from "./legibilityRhythm";
 import { extractSignature } from "./signature";
+import { extractLetterShapes } from "./letterShapes";
 
 export interface ExtractionResult {
   features: AllFeatureResults;
@@ -38,6 +40,8 @@ export function buildPipelineContext(
   const plausibleComponents = plausibleLetterComponents(components, width, height);
   const componentsByLine = componentsByLineMap(plausibleComponents);
   const xHeightBands = estimateXHeightBands(lines, componentsByLine);
+  const bandByLine = new Map(xHeightBands.map((b) => [b.lineIndex, b]));
+  const componentShapes = classifyComponentShapes(plausibleComponents, bandByLine, mask, width, height);
   const lineWordData = lines.map((line) => {
     const { words, letterGapPx, wordGapPx } = detectWordsInLine(mask, width, line);
     return { line, words, letterGapPx, wordGapPx };
@@ -54,6 +58,7 @@ export function buildPipelineContext(
     plausibleComponents,
     componentsByLine,
     xHeightBands,
+    componentShapes,
     lineWordData,
     scanQuality,
     analyzeRegardlessOfQuality,
@@ -75,6 +80,7 @@ export function extractAllFeatures(ctx: PipelineContext): ExtractionResult {
     legibility: extractLegibility(ctx),
     rhythm: extractRhythm(ctx),
     signature: extractSignature(ctx),
+    letterShapes: extractLetterShapes(ctx),
   };
 
   const wordsDetected = ctx.lineWordData.reduce((a, l) => a + l.words.length, 0);

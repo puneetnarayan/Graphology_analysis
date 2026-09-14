@@ -42,7 +42,7 @@ export const ANALYSIS_SUB_TABS: AnalysisSubTabDef[] = [
   { key: "spacing", label: "Spacing", featureKey: "spacing" },
   { key: "margins", label: "Margins", featureKey: "margins" },
   { key: "zones", label: "Zones", featureKey: "zones" },
-  { key: "letterForms", label: "Letter Forms", featureKey: "ovals" },
+  { key: "letterForms", label: "Letter Forms", featureKey: "letterShapes" },
   { key: "connections", label: "Connections" },
   { key: "tBars", label: "T-Bars", featureKey: "tBars" },
   { key: "iDots", label: "I-Dots", featureKey: "iDots" },

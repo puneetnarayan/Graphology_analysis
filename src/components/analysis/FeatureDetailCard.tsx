@@ -7,7 +7,14 @@ import { Button } from "@/components/ui/Button";
 import { FEATURE_TO_RULE_CATEGORY, formatMeasurementValue, humanizeMeasurementKey } from "@/config/featureCategoryMap";
 import { OVERRIDE_OPTIONS } from "@/config/overrideOptions";
 import { useWorkflow } from "@/state/workflowStore";
-import type { FeatureModuleResult, RuleActivation } from "@/types";
+import type { FeatureModuleResult, RuleActivation, ShapeBucketCount } from "@/types";
+
+function isShapeBucketArray(value: unknown): value is ShapeBucketCount[] {
+  return (
+    Array.isArray(value) &&
+    value.every((v) => v && typeof v === "object" && "bucket" in v && "count" in v && "fraction" in v)
+  );
+}
 
 export function FeatureDetailCard({
   featureKey,
@@ -25,10 +32,14 @@ export function FeatureDetailCard({
   const override = ctx.overrides[featureKey];
   const options = OVERRIDE_OPTIONS[featureKey];
 
-  const measurementEntries =
+  const allEntries =
     result.measurement && typeof result.measurement === "object" && !Array.isArray(result.measurement)
       ? Object.entries(result.measurement as Record<string, unknown>)
       : [];
+  const bucketEntry = allEntries.find(([k, v]) => k === "buckets" && isShapeBucketArray(v)) as
+    | [string, ShapeBucketCount[]]
+    | undefined;
+  const measurementEntries = allEntries.filter(([k]) => k !== "buckets");
 
   return (
     <Card>
@@ -58,6 +69,31 @@ export function FeatureDetailCard({
             </div>
           ))}
         </dl>
+      )}
+
+      {result.available && bucketEntry && (
+        <div className="mt-4">
+          <p className="text-xs font-semibold text-text-muted mb-2">Shape Distribution</p>
+          <p className="text-[11px] text-text-muted mb-2">
+            Letter-agnostic geometric groupings (loop presence, ascender/descender extension, aspect ratio) — not
+            per-letter (a/o/e/...) OCR identification.
+          </p>
+          <div className="flex flex-col gap-1.5">
+            {bucketEntry[1].map((b) => (
+              <div key={b.bucket} className="flex items-center gap-2 text-xs">
+                <span className="w-40 shrink-0 text-text-muted truncate" title={b.label}>
+                  {b.label}
+                </span>
+                <div className="flex-1 h-2 rounded-full bg-surface-sunken overflow-hidden">
+                  <div className="h-full rounded-full bg-primary" style={{ width: `${Math.max(2, b.fraction * 100)}%` }} />
+                </div>
+                <span className="w-16 shrink-0 text-right font-medium text-text-strong">
+                  {b.count} ({Math.round(b.fraction * 100)}%)
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
       )}
 
       {override && (

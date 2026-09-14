@@ -15,6 +15,15 @@ function componentDims(c: ConnectedComponent) {
   return { w, h, cx: (c.minX + c.maxX) / 2, cy: (c.minY + c.maxY) / 2 };
 }
 
+/**
+ * T-bar, i-dot and oval detection below are gated on the letter-agnostic
+ * shape classifier (shapeClassifier.ts), which uses genuine topology (hole
+ * detection) rather than bounding-box heuristics alone. This tightens
+ * precision — e.g. a t-bar candidate must pair with a loop-free ascender
+ * stem, so a stray horizontal stroke near a looped ascender ("b", "l" with a
+ * serif loop) is correctly excluded — but it is still not per-letter OCR:
+ * these are shape buckets, not confirmed letter identities.
+ */
 export function extractTBars(ctx: PipelineContext): FeatureModuleResult<TBarMeasurement> {
   const key = "tBars";
   const label = "T-Bars";
@@ -24,13 +33,13 @@ export function extractTBars(ctx: PipelineContext): FeatureModuleResult<TBarMeas
   for (const [lineIdx, comps] of ctx.componentsByLine) {
     const band = bandByLine.get(lineIdx);
     if (!band) continue;
-    const stems = comps.filter((c) => c.maxY - c.minY + 1 > band.height * 1.25);
-    for (const c of comps) {
-      const { w, h, cx, cy } = componentDims(c);
-      if (w < h * 1.5 || h > band.height * 0.9 || w < 4) continue;
+    const stems = comps.filter((c) => ctx.componentShapes.get(c.id)?.bucket === "ascender_stem");
+    const bars = comps.filter((c) => ctx.componentShapes.get(c.id)?.bucket === "crossbar_candidate");
+    for (const bar of bars) {
+      const { w, cx, cy } = componentDims(bar);
       const stem = stems.find((s) => {
         const sDims = componentDims(s);
-        return Math.abs(sDims.cx - cx) < w * 1.4 && s.minY < c.minY && s.maxY > band.bottom;
+        return Math.abs(sDims.cx - cx) < w * 1.4 && s.minY < bar.minY && s.maxY > band.bottom;
       });
       if (!stem) continue;
       const heightRatio = (band.top - cy) / band.height;
@@ -49,7 +58,7 @@ export function extractTBars(ctx: PipelineContext): FeatureModuleResult<TBarMeas
     };
   }
 
-  const reliableCount = results.length >= T_BAR_THRESHOLDS.MIN_RELIABLE_COUNT ? results.length : results.length;
+  const reliableCount = results.length;
   const readability = featureReadability(ctx, key) / 100;
   const confidence = clamp(
     0.2 + readability * 0.3 + Math.min(0.25, results.length / 30),
@@ -92,21 +101,27 @@ export function extractIDots(ctx: PipelineContext): FeatureModuleResult<IDotMeas
   for (const [lineIdx, comps] of ctx.componentsByLine) {
     const band = bandByLine.get(lineIdx);
     if (!band) continue;
-    const medianArea = median(comps.map((c) => c.area)) || 1;
-    for (const c of comps) {
-      const { w, h, cx, cy } = componentDims(c);
-      const aspect = w / h;
-      if (c.area > medianArea * 0.35 || c.area < 2 || aspect < 0.4 || aspect > 2.5) continue;
-      if (cy > band.top) continue; // dots sit above the x-height band
-      const stem = comps.find((s) => {
-        if (s === c) return false;
+    const dots = comps.filter((c) => ctx.componentShapes.get(c.id)?.bucket === "dot");
+    // A genuine i/j stem is short relative to x-height — a full ascender
+    // (l, t, h, k, b...) is not the stem a dot belongs to.
+    const stems = comps.filter((c) => {
+      const info = ctx.componentShapes.get(c.id);
+      if (!info) return false;
+      const isStemShaped = info.bucket === "ascender_stem" || info.bucket === "x_height_narrow_stem";
+      return isStemShaped && info.heightToXHeightRatio <= 1.4;
+    });
+
+    for (const dot of dots) {
+      const { w, cx } = componentDims(dot);
+      const stem = stems.find((s) => {
         const sDims = componentDims(s);
-        return Math.abs(sDims.cx - cx) < Math.max(6, w * 1.6) && s.minY > c.maxY - 2 && s.maxY >= band.top;
+        return Math.abs(sDims.cx - cx) < Math.max(6, w * 1.6) && s.minY > dot.maxY - 2 && s.maxY >= band.top;
       });
       if (!stem) continue;
       const sDims = componentDims(stem);
+      const aspect = w / (dot.maxY - dot.minY + 1);
       results.push({
-        vOffset: (stem.minY - c.maxY) / band.height,
+        vOffset: (stem.minY - dot.maxY) / band.height,
         hOffset: (cx - sDims.cx) / (median(comps.map((cc) => cc.maxX - cc.minX + 1)) || 1),
         circular: aspect > 0.65 && aspect < 1.5,
       });
@@ -154,19 +169,15 @@ export function extractIDots(ctx: PipelineContext): FeatureModuleResult<IDotMeas
 export function extractOvals(ctx: PipelineContext): FeatureModuleResult<OvalMeasurement> {
   const key = "ovals";
   const label = "Ovals";
-  const bandByLine = new Map(ctx.xHeightBands.map((b) => [b.lineIndex, b]));
   const results: { compression: number; open: boolean }[] = [];
 
   for (const c of ctx.plausibleComponents) {
-    const band = bandByLine.get(c.lineIndex);
-    if (!band) continue;
+    const info = ctx.componentShapes.get(c.id);
+    if (!info) continue;
+    if (info.bucket !== "x_height_closed_loop" && info.bucket !== "x_height_open_round") continue;
     const { w, h } = componentDims(c);
-    if (h < band.height * 0.55 || h > band.height * 1.4) continue;
-    const aspect = w / h;
-    if (aspect < 0.5 || aspect > 1.6) continue;
-    const fillRatio = c.area / (w * h);
     const compression = 1 - Math.min(w, h) / Math.max(w, h);
-    results.push({ compression, open: fillRatio < 0.32 });
+    results.push({ compression, open: info.bucket === "x_height_open_round" });
   }
 
   const available = results.length >= OVAL_THRESHOLDS.MIN_RELIABLE_COUNT;
@@ -181,7 +192,7 @@ export function extractOvals(ctx: PipelineContext): FeatureModuleResult<OvalMeas
   }
 
   const readability = featureReadability(ctx, key) / 100;
-  const confidence = clamp(0.15 + readability * 0.3 + Math.min(0.25, results.length / 30), 0.05, available ? 0.6 : 0.25);
+  const confidence = clamp(0.2 + readability * 0.3 + Math.min(0.25, results.length / 30), 0.05, available ? 0.65 : 0.25);
 
   const measurement: OvalMeasurement = {
     count: results.length,

@@ -136,6 +136,31 @@ export interface SignatureMeasurement {
   confidence: number;
 }
 
+export interface ShapeBucketCount {
+  bucket: string;
+  label: string;
+  count: number;
+  fraction: number;
+}
+
+/**
+ * Alphabet-level shape distribution: a letter-agnostic census of the
+ * geometric buckets (loop presence, ascender/descender extension, aspect
+ * ratio) observed across the sample's components. This is NOT per-letter
+ * (a/o/e/...) identification — that requires OCR — but it surfaces the same
+ * underlying graphological signals (loop prevalence, stem precision,
+ * crossbar/dot candidates) in aggregate, and feeds the rule engine.
+ */
+export interface ShapeDistributionMeasurement {
+  totalClassified: number;
+  buckets: ShapeBucketCount[];
+  loopFraction: number;
+  narrowStemFraction: number;
+  dotCandidateCount: number;
+  crossbarCandidateCount: number;
+  confidence: number;
+}
+
 /** A named feature module's overall analysis status. */
 export interface FeatureModuleResult<TMeasurement> {
   key: string;
@@ -161,4 +186,5 @@ export interface AllFeatureResults {
   legibility: FeatureModuleResult<LegibilityMeasurement>;
   rhythm: FeatureModuleResult<RhythmMeasurement>;
   signature: FeatureModuleResult<SignatureMeasurement>;
+  letterShapes: FeatureModuleResult<ShapeDistributionMeasurement>;
 }

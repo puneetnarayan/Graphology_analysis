@@ -93,10 +93,40 @@ guessing.
 | Spacing | Reliable | Word/letter gap statistics from column projections |
 | Legibility | Conditionally reliable | Composite of sharpness + size consistency + scan quality |
 | Pressure | **Experimental — image-derived proxy** | Not a physical pressure measurement; a scanner cannot capture pen force. Uses ink darkness, density and stroke-width consistency as correlates, with confidence penalized on poor scans. |
-| T-bars, I-dots, Ovals | Experimental | Heuristic satellite-component detection; requires a minimum sample count before any interpretation is offered |
+| T-bars, I-dots, Ovals | Experimental | Gated by a letter-agnostic shape classifier (below) rather than bounding-box heuristics alone; requires a minimum sample count before any interpretation is offered |
+| Letter Shapes (alphabet-level distribution) | Experimental | See below |
 | Rhythm & Speed | Experimental | Proxy from stroke continuity + size/spacing variability |
 | Signature | Experimental | Conservative last-line heuristic; manual region confirmation is the reliable path |
 | Connections, Capital Letters, Punctuation | **Not yet implemented** | The Analysis tabs for these exist and say so honestly rather than showing fabricated results |
+
+### Shape-bucketed gating (not per-letter OCR)
+
+`src/analysis/features/shapeClassifier.ts` classifies every connected ink component into a
+letter-*agnostic* geometric bucket, using two real signals:
+
+- **Topology** (`src/utils/topology.ts`): does the stroke enclose a pocket of background —
+  a genuine loop/hole detector (flood-fill from the component's bounding-box border; any
+  background pixel that can't reach the border without crossing ink is an enclosed loop).
+  This is what actually distinguishes a closed "o" from an open "u"-like form, rather than
+  a fill-ratio proxy.
+- **Zone extension**: does the component reach above/below the line's x-height band
+  (ascender/descender), from the existing zone-detection geometry.
+
+Buckets: `dot`, `crossbar_candidate`, `ascender_with_loop`, `ascender_stem`,
+`descender_with_loop`, `descender_stem`, `full_span`, `x_height_closed_loop`,
+`x_height_open_round`, `x_height_narrow_stem`, `other`.
+
+T-bar, i-dot and oval detection now require a component to fall in the matching bucket
+before pairing it with a stem (e.g. a t-bar candidate must be `crossbar_candidate` paired
+with an `ascender_stem` — not `ascender_with_loop`, which correctly excludes looped
+ascenders like "b"/"l" from being mistaken for "t"). The aggregate bucket counts are also
+exposed as their own feature (**Letter Forms** tab → "Letter Shapes"), giving an
+alphabet-level census (loop prevalence, stem prevalence, dot/crossbar candidate counts)
+that two new rules (`LOOP-PREVALENCE-001`, `STEM-PRECISION-001`) feed into trait scoring.
+
+**This is still not per-letter identification.** The engine knows a component is
+loop-bearing and sits within the x-height band; it does not know whether that component is
+an "a", "o", "e", "d" or "g" specifically. That requires OCR (see Known limitations).
 
 ## Privacy / no-storage architecture
 
@@ -139,6 +169,10 @@ silently averaged away.
 
 ## Known limitations
 
+- No OCR / per-letter identification. The shape classifier above buckets components by
+  geometry (loop, zone, aspect ratio), not by which specific letter (a vs o vs e) produced
+  them. Real per-letter analysis would need a lightweight OCR pass (e.g. Tesseract.js) —
+  planned as a future iteration, not implemented here.
 - PDF page rendering for uploaded PDF samples is not implemented in this release;
   JPG/PNG/WebP are supported.
 - Letter-connection style, capital-letter-specific and punctuation-specific detectors

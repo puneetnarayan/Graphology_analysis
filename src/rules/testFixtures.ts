@@ -20,6 +20,7 @@ export function baseFeatures(): AllFeatureResults {
     legibility: unavailable("legibility", "Legibility"),
     rhythm: unavailable("rhythm", "Rhythm & Speed"),
     signature: unavailable("signature", "Signature"),
+    letterShapes: unavailable("letterShapes", "Letter Shapes"),
   };
 }
 

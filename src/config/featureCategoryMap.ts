@@ -14,6 +14,7 @@ export const FEATURE_TO_RULE_CATEGORY: Record<string, RuleCategory> = {
   legibility: "legibility",
   rhythm: "rhythm",
   signature: "signature",
+  letterShapes: "letters",
 };
 
 const LABEL_OVERRIDES: Record<string, string> = {
@@ -67,6 +68,11 @@ const LABEL_OVERRIDES: Record<string, string> = {
   hasStrikeThrough: "Strike-through",
   slantDeltaDegrees: "Slant Delta",
   confidence: "Confidence",
+  totalClassified: "Components Classified",
+  loopFraction: "Loop-Bearing Fraction",
+  narrowStemFraction: "Narrow-Stem Fraction",
+  dotCandidateCount: "Dot Candidates",
+  crossbarCandidateCount: "Crossbar Candidates",
 };
 
 export function humanizeMeasurementKey(key: string): string {

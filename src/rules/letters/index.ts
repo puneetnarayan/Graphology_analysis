@@ -1,4 +1,4 @@
-import { OVAL_THRESHOLDS, T_BAR_THRESHOLDS, I_DOT_THRESHOLDS } from "@/config/thresholds";
+import { OVAL_THRESHOLDS, T_BAR_THRESHOLDS, I_DOT_THRESHOLDS, LETTER_SHAPE_THRESHOLDS } from "@/config/thresholds";
 import { defineRule, type Rule } from "../schema";
 
 export const letterRules: Rule[] = [
@@ -135,6 +135,53 @@ export const letterRules: Rule[] = [
         sufficiencyMin: I_DOT_THRESHOLDS.MIN_RELIABLE_COUNT,
         sufficiencyFull: 20,
         measurementLabel: `Mean i-dot vertical offset ${i.measurement.meanVerticalOffsetRatio}`,
+        regions: [],
+      };
+    },
+  }),
+  defineRule({
+    id: "LOOP-PREVALENCE-001",
+    category: "letters",
+    description: "High prevalence of loop-bearing letter shapes",
+    explanation: "A sample dominated by looped forms (closed x-height loops, looped ascenders/descenders) is traditionally read as an imaginative, feeling-oriented communication style.",
+    limitations: "This is a letter-agnostic shape census (topological hole detection), not per-letter OCR identification — it counts loops across the whole alphabet rather than confirming which specific letters produced them.",
+    ruleWeight: 0.4,
+    effects: [
+      { trait: "imagination_creativity", weight: 0.45, explanation: "High loop prevalence → imaginative orientation" },
+      { trait: "communication_style", weight: 0.2, explanation: "High loop prevalence → expressive, rounded forms" },
+    ],
+    evaluate: (ctx) => {
+      const l = ctx.features.letterShapes;
+      if (!l.available || !l.measurement) return null;
+      if (l.measurement.loopFraction < LETTER_SHAPE_THRESHOLDS.HIGH_LOOP_FRACTION) return null;
+      return {
+        observationConfidence: l.measurement.confidence,
+        sampleCount: l.measurement.totalClassified,
+        sufficiencyMin: LETTER_SHAPE_THRESHOLDS.MIN_CLASSIFIED,
+        sufficiencyFull: 60,
+        measurementLabel: `Loop-bearing components: ${(l.measurement.loopFraction * 100).toFixed(0)}% of ${l.measurement.totalClassified} classified`,
+        regions: [],
+      };
+    },
+  }),
+  defineRule({
+    id: "STEM-PRECISION-001",
+    category: "letters",
+    description: "High prevalence of narrow, loopless stem forms",
+    explanation: "A sample dominated by narrow, loopless stems (i/l/r-like forms without loops) is traditionally read as a precise, economical writing style.",
+    limitations: "This is a letter-agnostic shape census (topological hole detection), not per-letter OCR identification.",
+    ruleWeight: 0.35,
+    effects: [{ trait: "attention_precision", weight: 0.4, explanation: "High narrow-stem prevalence → economical precision" }],
+    evaluate: (ctx) => {
+      const l = ctx.features.letterShapes;
+      if (!l.available || !l.measurement) return null;
+      if (l.measurement.narrowStemFraction < LETTER_SHAPE_THRESHOLDS.HIGH_STEM_FRACTION) return null;
+      return {
+        observationConfidence: l.measurement.confidence,
+        sampleCount: l.measurement.totalClassified,
+        sufficiencyMin: LETTER_SHAPE_THRESHOLDS.MIN_CLASSIFIED,
+        sufficiencyFull: 60,
+        measurementLabel: `Narrow-stem components: ${(l.measurement.narrowStemFraction * 100).toFixed(0)}% of ${l.measurement.totalClassified} classified`,
         regions: [],
       };
     },
