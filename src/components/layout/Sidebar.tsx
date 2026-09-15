@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import { useWorkflow } from "@/state/workflowStore";
 import { PRIMARY_SECTIONS, type PrimarySection } from "@/state/navigation";
+import type { FormationsStore } from "@/components/formations/FormationsPanel";
+import { SyncStatusDots } from "./SyncStatusDots";
 
 const COLLAPSE_STORAGE_KEY = "graphology_sidebar_collapsed";
 
@@ -24,6 +26,7 @@ function isSectionEnabled(section: PrimarySection, ctx: ReturnType<typeof useWor
       return !!ctx.analysisReport;
     case "formations":
     case "bookPdf":
+    case "backup":
       return true;
     default:
       return false;
@@ -41,9 +44,10 @@ const ICONS: Record<PrimarySection, string> = {
   report: "≣",
   formations: "📚",
   bookPdf: "📖",
+  backup: "💾",
 };
 
-export function Sidebar() {
+export function Sidebar({ formationsStore }: { formationsStore: FormationsStore }) {
   const ctx = useWorkflow();
   // Defaults to expanded (matching SSR, which has no localStorage) and is
   // corrected right after mount if the user had collapsed it before — doing
@@ -115,7 +119,12 @@ export function Sidebar() {
             >
               {ICONS[s.key]}
             </span>
-            {!collapsed && s.label}
+            {!collapsed && (
+              <span className="flex flex-1 items-center justify-between gap-2 min-w-0">
+                <span className="truncate">{s.label}</span>
+                {s.key === "backup" && <SyncStatusDots store={formationsStore} />}
+              </span>
+            )}
           </button>
         );
       })}

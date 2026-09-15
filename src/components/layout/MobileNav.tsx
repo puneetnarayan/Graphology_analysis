@@ -2,12 +2,15 @@
 
 import { useWorkflow } from "@/state/workflowStore";
 import { PRIMARY_SECTIONS, type PrimarySection } from "@/state/navigation";
+import type { FormationsStore } from "@/components/formations/FormationsPanel";
+import { SyncStatusDots } from "./SyncStatusDots";
 
 function isSectionEnabled(section: PrimarySection, ctx: ReturnType<typeof useWorkflow>): boolean {
   switch (section) {
     case "upload":
     case "formations":
     case "bookPdf":
+    case "backup":
       return true;
     case "prepare":
     case "quality":
@@ -20,7 +23,7 @@ function isSectionEnabled(section: PrimarySection, ctx: ReturnType<typeof useWor
   }
 }
 
-export function MobileNav() {
+export function MobileNav({ formationsStore }: { formationsStore: FormationsStore }) {
   const ctx = useWorkflow();
   return (
     <nav className="no-print md:hidden fixed bottom-0 left-0 right-0 z-20 flex overflow-x-auto border-t border-border-soft bg-surface/95 backdrop-blur-sm px-2 py-2 scrollbar-thin">
@@ -32,11 +35,12 @@ export function MobileNav() {
             key={s.key}
             disabled={!enabled}
             onClick={() => ctx.setActiveSection(s.key)}
-            className={`shrink-0 rounded-lg px-3 py-2 text-xs font-medium whitespace-nowrap ${
+            className={`shrink-0 flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium whitespace-nowrap ${
               active ? "bg-primary-soft text-primary-dark" : enabled ? "text-text-muted" : "text-text-muted/40"
             }`}
           >
             {s.label}
+            {s.key === "backup" && <SyncStatusDots store={formationsStore} />}
           </button>
         );
       })}

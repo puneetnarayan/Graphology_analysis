@@ -12,6 +12,7 @@ import { AnalysisPanel } from "@/components/analysis/AnalysisPanel";
 import { OcrPanel } from "@/components/ocr/OcrPanel";
 import { FormationsPanel } from "@/components/formations/FormationsPanel";
 import { BookExportTab } from "@/components/formations/BookExportTab";
+import { BackupTab, BackupReminderModal } from "@/components/formations/BackupTab";
 import { ProfilePanel } from "@/components/evidence/ProfilePanel";
 import { EvidencePanel } from "@/components/evidence/EvidencePanel";
 import { ReportPanel } from "@/components/report/ReportPanel";
@@ -26,7 +27,7 @@ export function AppShell() {
     <div className="flex min-h-screen flex-col">
       <Header />
       <div className="flex flex-1">
-        <Sidebar />
+        <Sidebar formationsStore={formationsStore} />
         <main className="flex-1 min-w-0 px-4 md:px-8 py-6 pb-24 md:pb-6">
           {ctx.error && (
             <div className="mb-4 rounded-xl border border-danger/30 bg-danger-soft px-4 py-3 text-sm text-[#8a3030]">
@@ -44,10 +45,13 @@ export function AppShell() {
             {ctx.activeSection === "report" && <ReportPanel />}
             {ctx.activeSection === "formations" && <FormationsPanel store={formationsStore} />}
             {ctx.activeSection === "bookPdf" && <BookExportTab store={formationsStore} />}
+            {ctx.activeSection === "backup" && <BackupTab store={formationsStore} />}
           </div>
         </main>
       </div>
-      <MobileNav />
+      <MobileNav formationsStore={formationsStore} />
+      {/* Mounted once here (not per-page) so the reminder keeps firing no matter which section is active. */}
+      <BackupReminderModal store={formationsStore} />
     </div>
   );
 }

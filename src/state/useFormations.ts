@@ -5,7 +5,9 @@ import { loadImageElement, imageElementToCanvas, toAnalysisCanvas } from "@/util
 import { saveBackupHandle, loadBackupHandle, clearBackupHandle } from "@/utils/fileHandleStore";
 import { dbGetAll, dbPut, dbDelete, dbClear, dbBulkPut, dbBulkDelete, migrateFromLocalStorage, normalizeFormationEntry } from "@/utils/formationsDb";
 import { parseCsv, toCsv } from "@/utils/csv";
-import { FORMATION_TAGS, type FormationEntry, type FormationTag } from "@/types";
+import { applyPreprocessing } from "@/utils/preprocess";
+import { autoTuneToneForQuality } from "@/utils/autoTune";
+import { FORMATION_TAGS, DEFAULT_PREPROCESSING, type FormationEntry, type FormationTag } from "@/types";
 
 const CSV_COLUMNS = ["parameter", "character", "subCategory", "detail", "trait", "tag"];
 
@@ -21,11 +23,24 @@ const MAX_FORMATION_IMAGE_DIM = 1200;
 /** Wait for a quiet moment after the last change before writing the auto-backup file. */
 const AUTO_BACKUP_DEBOUNCE_MS = 800;
 
-/** Downscales an uploaded image and returns it as a compact JPEG data URL for storage. */
-async function fileToStoredDataUrl(file: File): Promise<string> {
+/**
+ * Downscales an uploaded image and returns it as a compact JPEG data URL for
+ * storage. When `autoCorrect` is true, runs the same tone-auto-tune search
+ * used for full analysis samples (brightness/contrast/sharpen/noise
+ * reduction/grayscale/background normalization) before downscaling, so
+ * formation crops get sharpened/cleaned up the same way. Geometry (rotation,
+ * crop, deskew) and binarization are left untouched either way — those
+ * aren't relevant to a small illustrative crop.
+ */
+async function fileToStoredDataUrl(file: File, autoCorrect: boolean): Promise<string> {
   const img = await loadImageElement(file);
-  const canvas = toAnalysisCanvas(imageElementToCanvas(img), MAX_FORMATION_IMAGE_DIM);
-  return canvas.toDataURL("image/jpeg", 0.85);
+  let canvas = imageElementToCanvas(img);
+  if (autoCorrect) {
+    const { settings } = autoTuneToneForQuality(canvas, DEFAULT_PREPROCESSING);
+    canvas = applyPreprocessing(canvas, settings);
+  }
+  const analysisCanvas = toAnalysisCanvas(canvas, MAX_FORMATION_IMAGE_DIM);
+  return analysisCanvas.toDataURL("image/jpeg", 0.85);
 }
 
 /** Content fields compared to decide whether two entries are exact duplicates — id/createdAt are expected to differ and are ignored. */
@@ -411,6 +426,8 @@ export function useFormations() {
   const addFormation = useCallback(
     async (input: {
       file: File | null;
+      /** Whether to auto-sharpen/clean up `file` before storing. Ignored if `file` is null. Defaults to true. */
+      autoCorrect?: boolean;
       detail: string;
       trait: string;
       parameter: string;
@@ -418,11 +435,11 @@ export function useFormations() {
       subCategory: string;
       tag: FormationTag | "";
     }) => {
-      const { file, detail, trait, parameter, character, subCategory, tag } = input;
+      const { file, autoCorrect = true, detail, trait, parameter, character, subCategory, tag } = input;
       if (!hasAnyContent({ parameter, character, subCategory, detail, trait }, !!file)) {
         throw new Error("Add at least an image or one field before saving.");
       }
-      const imageDataUrl = file ? await fileToStoredDataUrl(file) : undefined;
+      const imageDataUrl = file ? await fileToStoredDataUrl(file, autoCorrect) : undefined;
       const entry: FormationEntry = {
         id: newId(),
         imageDataUrl,
@@ -452,6 +469,8 @@ export function useFormations() {
       id: string,
       patch: {
         file?: File | null;
+        /** Whether to auto-sharpen/clean up a replacement `file` before storing. Ignored unless `file` is a new File. Defaults to true. */
+        autoCorrect?: boolean;
         detail?: string;
         trait?: string;
         parameter?: string;
@@ -460,7 +479,8 @@ export function useFormations() {
         tag?: FormationTag | "";
       },
     ) => {
-      const imageDataUrl = patch.file === undefined ? undefined : patch.file === null ? null : await fileToStoredDataUrl(patch.file);
+      const imageDataUrl =
+        patch.file === undefined ? undefined : patch.file === null ? null : await fileToStoredDataUrl(patch.file, patch.autoCorrect ?? true);
       let updated: FormationEntry | null = null;
       setFormations((prev) =>
         prev.map((f) => {
